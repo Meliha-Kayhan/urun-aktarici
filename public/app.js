@@ -371,6 +371,17 @@ function download(name, content, type) {
 
 const fileBase = (d) => (d.sku || d.languages.tr.name || 'urun').replace(/[^\w\-]+/g, '_').slice(0, 60);
 
+// Just the table, so it can be pasted into a store editor as-is; the charset
+// line keeps Turkish characters intact when the file is opened in a browser.
+$('#specsDownload').addEventListener('click', () => {
+  if (!product) return;
+  const d = collect();
+  const specs = d.languages[lang].specs;
+  if (!specs.length) return toast('Özellik tablosu boş');
+  download(`${fileBase(d)}_ozellikler_${lang}.html`, `<meta charset="utf-8">\n${specsHtml(specs)}\n`, 'text/html;charset=utf-8');
+  toast(`İndirildi (${LANGS[lang]})`);
+});
+
 function csvCell(v) {
   const s = String(v ?? '');
   return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
