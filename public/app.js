@@ -93,6 +93,16 @@ function render() {
   imgs.innerHTML = product.images.map((u) => `<a href="${escapeHtml(u)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(u)}" loading="lazy" alt=""></a>`).join('');
   $('#imgCount').textContent = product.images.length ? `(${product.images.length})` : '— bulunamadı';
 
+  $('#docs').innerHTML = product.documents
+    .map(
+      (d) =>
+        `<li><span class="doc-group">${escapeHtml(d.group || '')}</span><a href="${escapeHtml(d.url)}" target="_blank" rel="noreferrer">${escapeHtml(d.title)}</a>` +
+        (d.title !== d.file ? `<span class="doc-file">${escapeHtml(d.file)}</span>` : '') +
+        '</li>'
+    )
+    .join('');
+  $('#docCount').textContent = product.documents.length ? `(${product.documents.length})` : '— bulunamadı';
+
   renderLangTabs();
   loadLang(lang);
 }
@@ -214,6 +224,7 @@ function collect() {
   const data = { url: product.url };
   for (const input of $$('[data-f]')) data[input.dataset.f] = input.value.trim();
   data.images = product.images;
+  data.documents = product.documents;
   data.languages = {};
   for (const code of Object.keys(LANGS)) {
     const { name, category, shortDescription, descriptionHtml, descriptionText, specs } = product.translations[code];
@@ -245,6 +256,7 @@ document.addEventListener('click', async (e) => {
     specsHtml: specsHtml(t.specs),
     specsText: specsText(t.specs),
     images: d.images.join('\n'),
+    documents: d.documents.map((x) => `${x.title}: ${x.url}`).join('\n'),
   }[btn.dataset.copy];
   await navigator.clipboard.writeText(text || '');
   toast(`Kopyalandı (${LANGS[lang]})`);
@@ -291,6 +303,7 @@ for (const btn of $$('[data-export]')) {
       cols[`Özellikler HTML (${label})`] = t.specs.length ? specsHtml(t.specs) : '';
     }
     cols['Görseller'] = d.images.join(',');
+    cols['Belgeler'] = d.documents.map((x) => x.url).join(',');
     cols['Kaynak'] = d.url;
     const csv = [Object.keys(cols), Object.values(cols)].map((row) => row.map(csvCell).join(';')).join('\r\n');
     // BOM so Excel opens Turkish characters correctly

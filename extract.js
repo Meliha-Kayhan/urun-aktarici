@@ -4,12 +4,16 @@ import { LANGS, provider, translateFields } from './translate.js';
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 
-const SKU_LABELS = /^(stok\s*kodu|ürün\s*kodu|urun\s*kodu|model\s*kodu|model\s*no|ürün\s*no|sku|mpn|referans\s*(kodu|no)?|parça\s*(kodu|no)|kod)$/i;
+const SKU_LABELS =
+  /^(stok\s*kodu|ürün\s*kodu|urun\s*kodu|model\s*kodu|model\s*no|ürün\s*no|sku|mpn|referans\s*(kodu|no)?|parça\s*(kodu|no)|kod|model|model\s*(number|name)|part\s*(number|no\.?)|item\s*(number|no\.?)|product\s*code|artikelnummer|artikelnr\.?)$/i;
 const BARCODE_LABELS = /^(barkod|barcode|ean|gtin|upc)(\s*(no|kodu))?$/i;
 const BRAND_LABELS = /^(marka|brand|üretici)$/i;
 
 const SPEC_CONTAINER = /spec|ozellik|özellik|feature|attribute|teknik|technical|properties|detay/i;
-const DESC_CONTAINER = /(^|[-_ ])(description|aciklama|açıklama|product[-_]?detail|detay)([-_ ]|$)|tab-description|product-description/i;
+const SPEC_HEADING = /specification|spec sheet|tech(nical)?\s*spec|spesifikasyon|özellik|ozellik|teknik|technical data|specificaties|kenmerken|technische|spezifikation|caractéristiques|properties/i;
+// strong names are tried before weak ones, so "#overview" beats a generic "productDetail" wrapper
+const DESC_CONTAINER_STRONG = /(^|[-_ ])(description|desc|aciklama|açıklama|overview|genel[-_]?bakis)([-_ ]|$)|tab-description|product-description/i;
+const DESC_CONTAINER_WEAK = /(^|[-_ ])(product[-_]?detail|detay)([-_ ]|$)/i;
 const NOT_PRODUCT_AREA =
   'footer, header, nav, aside, dialog, [class*="cookie"], [id*="cookie"], [class*="privacy"], [id*="privacy"], [class*="modal"], [class*="footer"], [id*="footer"], [class*="cart"]';
 const SHORT_DESC_CONTAINER = /short[-_]?desc|summary|excerpt|kisa[-_]?aciklama|product[-_]?intro/i;
@@ -151,7 +155,8 @@ function microdata($) {
 function meta($, ...names) {
   for (const n of names) {
     const v = $(`meta[property="${n}"]`).attr('content') || $(`meta[name="${n}"]`).attr('content');
-    if (clean(v)) return clean(v);
+    // some sites double-escape entities in meta tags ("&amp;nbsp;" -> "&nbsp;")
+    if (clean(v)) return clean(cheerio.load(`<p>${v}</p>`)('p').text().replace(/ /g, ' '));
   }
   return '';
 }
@@ -185,29 +190,47 @@ function extractSpecs($) {
   const titleFor = (el) => {
     const cap = $(el).find('caption').first().text();
     if (clean(cap)) return cap;
-    const prev = $(el).prevAll('h1,h2,h3,h4,h5,strong').first().text();
-    return prev;
+    // a heading found further away is only trusted when it reads like a spec heading
+    const h = nearestHeading($, el);
+    return h && (h.direct || SPEC_HEADING.test(h.text)) ? h.text : '';
+  };
+
+  // a table counts as a spec table when its wrappers or the heading above it say so
+  const isHinted = (el) => {
+    if (containerHint(el)) return true;
+    const h = nearestHeading($, el);
+    if (h && SPEC_HEADING.test(h.text)) {
+      $(h.el).attr('data-ua-spec', '');
+      return true;
+    }
+    return false;
   };
 
   // 1. tables: key/value rows
   const tables = $('table')
     .toArray()
-    .filter((t) => !$(t).closest(NOT_PRODUCT_AREA).length);
-  const scored = tables.map((t) => ({ t, hinted: containerHint(t) }));
+    .filter((t) => !inNonProductArea($, t) && !$(t).find('table').length);
+  const scored = tables.map((t) => ({ t, hinted: isHinted(t) }));
   const anyHinted = scored.some((s) => s.hinted);
   for (const { t, hinted } of scored) {
     if (anyHinted && !hinted) continue;
-    if ($(t).find('table').length) continue; // layout tables
+    const trs = $(t).find('tr').toArray();
     const rows = [];
-    $(t)
-      .find('tr')
-      .each((_, tr) => {
-        const cells = $(tr).children('th, td');
-        if (cells.length === 2) rows.push({ key: clean($(cells[0]).text()).replace(/:$/, ''), value: clean($(cells[1]).text()) });
-      });
-    // unhinted tables are only trusted when they look like short key/value pairs
-    if (!hinted && rows.some((r) => r.key.length > 40 || r.value.length > 150)) continue;
-    if (rows.length >= 2 || (rows.length === 1 && hinted)) addGroup(titleFor(t), rows);
+    for (const tr of trs) {
+      const cells = $(tr).children('th, td');
+      if (cells.length === 2) rows.push({ key: cellText($, cells[0]).replace(/:$/, ''), value: cellText($, cells[1]) });
+    }
+    if (!rows.length) continue;
+    // "Part Number | Description" style tables are lists, not key/value specs
+    const firstCells = $(trs[0]).children('th, td');
+    const headerRow = firstCells.length > 0 && firstCells.toArray().every((c) => c.tagName === 'th') && trs.length > 1 && $(trs[1]).children('th').length === 0;
+    if (!hinted && (headerRow || rows.length < trs.length * 0.8)) continue;
+    // unhinted tables are only trusted when most keys look like short labels
+    if (!hinted && rows.filter((r) => r.key.length <= 40).length < rows.length * 0.8) continue;
+    if (rows.length >= 2 || hinted) {
+      $(t).attr('data-ua-spec', '');
+      addGroup(titleFor(t), rows);
+    }
   }
 
   // 2. definition lists
@@ -244,6 +267,75 @@ function extractSpecs($) {
   });
 
   return groups;
+}
+
+// Multi-line cells ("1x USB 2.0<br>3x USB 3.2") become "1x USB 2.0, 3x USB 3.2"
+function cellText($, el) {
+  const c = $(el).clone();
+  c.find('br').replaceWith('\n');
+  c.find('p, div, li').each((_, x) => {
+    $(x).append('\n');
+  });
+  return c
+    .text()
+    .split('\n')
+    .map(clean)
+    .filter(Boolean)
+    .join(', ');
+}
+
+// ---------- documents (datasheets, manuals, drawings) ----------
+
+const DOC_EXT = /\.(pdf|zip|rar|7z|step|stp|dwg|dxf|igs|iges|stl|docx?|xlsx?|pptx?|exe|msi|dmg|tar\.gz|tgz)(\?|#|$)/i;
+
+function extractDocuments($, base) {
+  const docs = [];
+  const seen = new Set();
+  $('a[href]').each((_, a) => {
+    const href = absUrl($(a).attr('href'), base);
+    if (!href || seen.has(href)) return;
+    if (!DOC_EXT.test(href) && $(a).attr('download') === undefined) return;
+    if (inNonProductArea($, a)) return;
+    seen.add(href);
+
+    // the link is often just an icon; the label sits in the surrounding item
+    let title = clean($(a).text());
+    for (let p = a.parent, i = 0; !title && p && i < 4; p = p.parent, i++) {
+      const t = clean($(p).clone().find('a, script, style, [class*="date"]').remove().end().text());
+      if (t && t.length <= 80) title = t;
+      else if (t) break;
+    }
+    const file = decodeURIComponent(href.split(/[?#]/)[0].split('/').pop() || '');
+    const group = $(a).closest('[data-tab-target-content]').attr('data-tab-target-content') || '';
+    docs.push({ title: title || file, group: clean(group).replace(/[-_]/g, ' '), file, url: href });
+  });
+  return docs.slice(0, 50);
+}
+
+// Footer, cookie banner, cart... A wrapper that also holds the product title
+// (some themes name the page wrapper "stickyFooter") is not one of them.
+function inNonProductArea($, el) {
+  return $(el)
+    .parents(NOT_PRODUCT_AREA)
+    .toArray()
+    .some((p) => !/^(body|html)$/i.test(p.tagName) && !$(p).find('h1').length);
+}
+
+// The closest heading above an element, looking through its own earlier
+// siblings and then its ancestors' earlier siblings (page builders often put
+// the heading in a separate block next to the table).
+function nearestHeading($, el) {
+  const H = 'h1, h2, h3, h4, h5, h6';
+  let cur = el;
+  for (let depth = 0; depth < 8 && cur && cur.tagName !== 'body'; depth++) {
+    for (let sib = cur.prev; sib; sib = sib.prev) {
+      if (sib.type !== 'tag') continue;
+      const h = $(sib).is(H) ? $(sib) : $(sib).find(H).last();
+      if (h.length && clean(h.text())) return { el: h[0], text: clean(h.text()), direct: depth === 0 && $(sib).is(H) };
+    }
+    cur = cur.parent;
+  }
+  return null;
 }
 
 function findInSpecs(groups, re) {
@@ -402,11 +494,14 @@ export async function parseProduct(html, url) {
   }
 
   // description: JSON-LD is often plain text, so prefer the on-page HTML when it exists
-  const descEl = findContainer($, DESC_CONTAINER);
+  const descEl = findContainer($, DESC_CONTAINER_STRONG) || findContainer($, DESC_CONTAINER_WEAK);
   let descriptionHtml = '';
   if (shopify?.body_html) descriptionHtml = shopify.body_html;
   else if (descEl) {
-    descriptionHtml = $(descEl).html();
+    // the spec table already has its own section, don't repeat it in the description
+    const body = $(descEl).clone();
+    body.find('[data-ua-spec]').remove();
+    descriptionHtml = body.html();
     // some themes put only the "Description" heading in the box and the text right after it
     if (clean($(descEl).text()).length < 40) {
       descriptionHtml += $(descEl)
@@ -450,7 +545,9 @@ export async function parseProduct(html, url) {
 
   const barcode = first(ld?.gtin13, ld?.gtin, ld?.gtin12, ld?.gtin8, ld?.gtin14, shopify?.variants?.[0]?.barcode, findInSpecs(specs, BARCODE_LABELS));
 
-  const name = first(ld?.name, md.name, shopify?.title, meta($, 'og:title'), $('h1').first().text(), $('title').text());
+  // page titles usually end with the site name: "D137 Carrier Board | AVerMedia"
+  const stripSite = (t) => clean(t).replace(/\s+[|–—]\s+[^|–—]{2,40}$/, '');
+  const name = first(ld?.name, md.name, shopify?.title, stripSite(meta($, 'og:title')), $('h1').first().text(), stripSite($('title').text()));
 
   return {
     url,
@@ -467,6 +564,7 @@ export async function parseProduct(html, url) {
     descriptionText: htmlToText(descriptionHtml),
     specs,
     images: extractImages($, ld, url, shopify),
+    documents: extractDocuments($, url),
     lang: pageLanguage($),
     alternates: alternates($, url),
     sources: {
