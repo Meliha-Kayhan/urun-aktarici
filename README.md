@@ -36,7 +36,9 @@ Tablolar, görseller, "[NEW]" etiketleri, boş satırlar ve tekrarlar atılır. 
 
 ### Görseller
 
-Bulunan ürün görselleri sunucuda indirilip **800×800 WebP**'ye çevrilir (kalite 85). Ürün kırpılmaz: görsel kareye sığdırılır, boşluklar beyazla doldurulur; şeffaf arka planlar da beyaz olur. Ekrandaki önizlemeler dönüştürülmüş hâlidir. Her görsel tek tek ("WebP indir") ya da hepsi birlikte ZIP olarak indirilebilir (`<stok kodu>_1.webp`, `_2.webp`…). Dönüştürülemeyen görseller ZIP'teki `hatalar.txt` dosyasında listelenir. Kod: `images.js`.
+Görsellerin her zaman en büyük hâli aranır (srcset'teki en büyük boyut, zoom görselleri, Shopify/WooCommerce küçük resim adreslerinin tam boyutlusu). Adaylar indirilip gerçek boyutları ölçülür: 1×1 yer tutucular, ikonlar, 300 px'den küçük küçük resimler ve birebir aynı dosyalar atılır. Adaylar güvenilirlik sırasıyla denenir (mağaza ürün verisi → yapısal veri → ürün galerisi → paylaşım görseli → sayfa içi görseller); üst sıradan en az 2 iyi görsel çıkarsa alttakilere bakılmaz, böylece afişler ve başka renk seçenekleri karışmaz.
+
+Görseller sunucuda **800×800 WebP**'ye çevrilir (kalite 92, tam renk çözünürlüğü). Ürün kırpılmaz: görsel kareye sığdırılır, boşluklar beyazla doldurulur; şeffaf arka planlar da beyaz olur. Ekrandaki önizlemeler dönüştürülmüş hâlidir; her görselin altında kaynak boyutu yazar, 800 px'den küçük kaynaklar ⚠ ile işaretlenir (büyütüldükleri için net olmayabilirler). İstenmeyen görsel × ile kaldırılır; kaldırılanlar ZIP'e ve dışa aktarmaya girmez. Her görsel tek tek ("WebP indir") ya da hepsi birlikte ZIP olarak indirilebilir (`<stok kodu>_1.webp`, `_2.webp`…). Dönüştürülemeyen görseller ZIP'teki `hatalar.txt` dosyasında listelenir. Kod: `images.js`.
 
 ### Sayfadaki tüm bölümler
 

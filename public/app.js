@@ -95,7 +95,6 @@ function render() {
   renderSections();
 
   renderImages();
-  $('#imgCount').textContent = product.images.length ? `(${product.images.length})` : '— bulunamadı';
 
   $('#docs').innerHTML = product.documents
     .map(
@@ -162,28 +161,44 @@ function webpUrl(src, i, download) {
   return `/api/image?${q}`;
 }
 
+// images the user removed with × stay out of the ZIP and the exports
+const activeImages = () => product.images.filter((im) => !im.removed);
+
 function renderImages() {
   $('#images').innerHTML = product.images
-    .map(
-      (u, i) => `<div class="img-tile">
-        <a class="img" href="${escapeHtml(webpUrl(u, i))}" target="_blank" rel="noreferrer"><img src="${escapeHtml(webpUrl(u, i))}" loading="lazy" alt=""></a>
-        <a class="img-dl" href="${escapeHtml(webpUrl(u, i, true))}">WebP indir</a>
-      </div>`
-    )
+    .map((im, i) => {
+      const size = `${im.width}×${im.height}`;
+      return `<div class="img-tile${im.removed ? ' removed' : ''}" data-i="${i}">
+        <a class="img" href="${escapeHtml(webpUrl(im.url, i))}" target="_blank" rel="noreferrer"><img src="${escapeHtml(webpUrl(im.url, i))}" loading="lazy" alt=""></a>
+        <button type="button" class="img-x" title="${im.removed ? 'Geri al' : 'Kaldır'}">${im.removed ? '↺' : '×'}</button>
+        <span class="img-size${im.upscaled ? ' small' : ''}" title="${im.upscaled ? 'Kaynak 800 pikselden küçük; büyütüldüğü için net olmayabilir' : 'Kaynak boyutu'}">${im.upscaled ? '⚠ ' : ''}${size}</span>
+        <a class="img-dl" href="${escapeHtml(webpUrl(im.url, i, true))}">WebP indir</a>
+      </div>`;
+    })
     .join('');
+  const n = activeImages().length;
+  $('#imgCount').textContent = product.images.length ? `(${n}${n !== product.images.length ? ` / ${product.images.length}` : ''})` : '— bulunamadı';
   // a source that can't be converted shows why instead of a broken image
   for (const img of $$('#images img')) {
     img.addEventListener('error', () => {
       const tile = img.closest('.img-tile');
       tile.classList.add('failed');
       img.replaceWith('Dönüştürülemedi');
-      tile.querySelector('.img-dl').remove();
+      tile.querySelector('.img-dl')?.remove();
     });
   }
 }
 
+$('#images').addEventListener('click', (e) => {
+  const x = e.target.closest('.img-x');
+  if (!x) return;
+  const im = product.images[Number(x.closest('.img-tile').dataset.i)];
+  im.removed = !im.removed;
+  renderImages();
+});
+
 $('#imagesZip').addEventListener('click', async () => {
-  if (!product?.images.length) return toast('Görsel yok');
+  if (!product || !activeImages().length) return toast('Görsel yok');
   const btn = $('#imagesZip');
   btn.disabled = true;
   btn.textContent = 'Hazırlanıyor…';
@@ -191,7 +206,7 @@ $('#imagesZip').addEventListener('click', async () => {
     const res = await fetch('/api/images.zip', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ urls: product.images, name: imageBase(), ref: product.url }),
+      body: JSON.stringify({ urls: activeImages().map((im) => im.url), name: imageBase(), ref: product.url }),
     });
     if (!res.ok) throw new Error((await res.json()).error);
     download(`${imageBase()}_gorseller.zip`, await res.blob(), 'application/zip');
@@ -372,7 +387,7 @@ function collect() {
   saveLang();
   const data = { url: product.url };
   for (const input of $$('[data-f]')) data[input.dataset.f] = input.value.trim();
-  data.images = product.images;
+  data.images = activeImages().map((im) => im.url);
   data.documents = product.documents;
   data.languages = {};
   for (const code of Object.keys(LANGS)) {

@@ -2,6 +2,7 @@ import * as cheerio from 'cheerio';
 import { LANGS, provider, translateFields } from './translate.js';
 import { renderPage } from './render.js';
 import { formatDescription, localizeHeadings } from './format.js';
+import { probeImages } from './images.js';
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
@@ -368,22 +369,79 @@ function findContainer($, re) {
 
 // ---------- images ----------
 
+// The largest file a srcset offers: "a.jpg 400w, b.jpg 1600w" -> b.jpg
+function largestInSrcset(srcset) {
+  if (!srcset) return '';
+  const items = srcset
+    .split(/,\s+(?=\S)/)
+    .map((part) => {
+      const [u, d] = part.trim().split(/\s+/);
+      return { u, n: parseFloat(d) || 1 };
+    })
+    .filter((x) => x.u);
+  items.sort((a, b) => b.n - a.n);
+  return items[0]?.u || '';
+}
+
+// Thumbnail URLs rewritten to the full-size file where the pattern is well known
+function fullSizeUrl(u) {
+  // Shopify: name_300x300.jpg, name_small.png, ?width=300
+  if (/cdn\.shopify\.com|\/cdn\/shop\//.test(u)) {
+    u = u.replace(/_(?:\d+x\d*|\d*x\d+|pico|icon|thumb|small|compact|medium|large|grande)(?:@\dx)?(?=\.(?:jpe?g|png|webp|gif)(?:\?|$))/i, '');
+    u = u.replace(/([?&])(width|height|crop)=[^&]*&?/gi, '$1').replace(/[?&]$/, '');
+  }
+  // WordPress / WooCommerce: name-300x300.jpg
+  u = u.replace(/-\d{2,4}x\d{2,4}(?=\.(?:jpe?g|png|webp)(?:\?|$))/i, '');
+  return u;
+}
+
+const IMG_JUNK = /^default\.|no-?image|logo|icon|sprite|placeholder|loading|spinner|blank|spacer|pixel|badge|flag|payment|avatar|rating|star/i;
+const GALLERY =
+  '[class*="gallery" i], [id*="gallery" i], [class*="product-image" i], [class*="product__media" i], [class*="product-media" i], [class*="slider" i], [class*="carousel" i], [class*="swiper" i], [class*="zoom" i], [class*="thumbnails" i], [class*="fotorama" i]';
+
+// Candidate product images grouped by how much they can be trusted:
+//   0 the shop's own product data (Shopify), 1 structured data, 2 the product
+//   gallery, 3 the share image, 4 any other image in the product content.
+// images.js measures them tier by tier and stops once a tier gives enough real
+// photos, so banners and other colour variants don't sneak in.
 function extractImages($, ld, base, shopify) {
   const out = [];
-  const push = (u) => {
-    const abs = absUrl(typeof u === 'object' ? u?.url || u?.contentUrl || u?.src : u, base);
-    if (abs && !out.includes(abs) && !/\.svg(\?|$)/i.test(abs)) out.push(abs);
+  const seen = new Set();
+  const push = (u, tier) => {
+    const raw = typeof u === 'object' ? u?.url || u?.contentUrl || u?.src : u;
+    if (!raw || /^data:/i.test(raw)) return;
+    const abs = absUrl(fullSizeUrl(raw.trim()), base);
+    if (!abs || seen.has(abs) || /\.svg(\?|$)/i.test(abs) || IMG_JUNK.test(abs.split('?')[0].split('/').pop())) return;
+    seen.add(abs);
+    out.push({ url: abs, tier });
   };
-  asArray(shopify?.images).forEach(push);
-  asArray(ld?.image).forEach(push);
-  $('meta[property="og:image"]').each((_, m) => push($(m).attr('content')));
-  $('[itemtype*="schema.org/Product"] [itemprop="image"]').each((_, el) => push($(el).attr('content') || $(el).attr('src')));
-  if (out.length < 2) {
-    $('[class*="gallery"] img, [class*="product-image"] img, [class*="slider"] img, [id*="gallery"] img')
-      .slice(0, 20)
-      .each((_, img) => push($(img).attr('data-zoom-image') || $(img).attr('data-large') || $(img).attr('data-src') || $(img).attr('src')));
-  }
-  return out.slice(0, 20);
+  // every source a lazy-loading / zooming gallery might keep the big file in
+  const bestOf = (img) => {
+    const $i = $(img);
+    const link = $i.closest('a').attr('href');
+    return (
+      $i.attr('data-zoom-image') || $i.attr('data-large_image') || $i.attr('data-large') || $i.attr('data-full') ||
+      $i.attr('data-zoom') || $i.attr('data-original') ||
+      (link && /\.(jpe?g|png|webp)(\?|$)/i.test(link) ? link : '') ||
+      largestInSrcset($i.attr('srcset') || $i.attr('data-srcset')) ||
+      $i.attr('data-src') || $i.attr('src')
+    );
+  };
+
+  asArray(shopify?.images).forEach((u) => push(u, 0));
+  asArray(ld?.image).forEach((u) => push(u, 1));
+  $('[itemtype*="schema.org/Product"] [itemprop="image"]').each((_, el) => push($(el).attr('content') || $(el).attr('href') || bestOf(el), 1));
+  $(GALLERY)
+    .find('img')
+    .each((_, img) => {
+      if (!inUnrelatedArea($, img)) push(bestOf(img), 2);
+    });
+  $('[data-zoom-image], a[data-fancybox][href], a[data-lightbox][href]').each((_, el) => push($(el).attr('data-zoom-image') || $(el).attr('href'), 2));
+  $('meta[property="og:image"]').each((_, m) => push($(m).attr('content'), 3));
+  $('main img, [class*="product" i] img, [id*="product" i] img, article img').each((_, img) => {
+    if (!inUnrelatedArea($, img)) push(bestOf(img), 4);
+  });
+  return out.slice(0, 60);
 }
 
 // ---------- Shopify ----------
@@ -603,6 +661,9 @@ const sameUrl = (a, b) => a.replace(/[?#].*$/, '').replace(/\/$/, '') === b.repl
 // Each language comes from the best available source: the page itself, the
 // site's own page in that language (hreflang), or machine translation.
 async function addTranslations(p) {
+  // measured in parallel with the translations below
+  const images = probeImages(p.images, p.url);
+
   // keep the site's text for reference, then rebuild it into the standard layout
   p.originalDescriptionHtml = p.descriptionHtml;
   p.descriptionHtml = formatDescription(p);
@@ -638,7 +699,7 @@ async function addTranslations(p) {
     t.descriptionHtml = localizeHeadings(t.descriptionHtml, lang);
     t.descriptionText = htmlToText(t.descriptionHtml);
   }
-  return { ...p, translations, translator: provider };
+  return { ...p, images: await images, translations, translator: provider };
 }
 
 // ---------- main ----------
