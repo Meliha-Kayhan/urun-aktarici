@@ -24,6 +24,16 @@ Bilgiler şu sırayla aranır:
 4. Meta etiketler (`og:title`, `og:description`, `og:image`)
 5. **Tüm sayfa taraması:** sayfadaki her içerik bloğu (tablo, tanım listesi, madde listesi, `div` ızgaraları, "Ad: Değer" satırları, paragraflar) bulunur, başlığına ya da sekme adına göre bölümlere ayrılır ve sınıflandırılır. Yukarıdakilerin kaçırdığı özellik listeleri ve metinler buradan tamamlanır.
 
+### Açıklama formatı
+
+Siteden alınan açıklama birebir kopyalanmaz; her üründe aynı düzene sokulur:
+
+1. **Giriş paragrafı** — sayfadaki ilk dolu paragraf
+2. **Öne Çıkan Özellikler** — sayfadaki her "başlık + paragraf" bloğu bir maddeye dönüşür: kalın başlık – 1-2 cümlelik özet. Böyle bloklar yoksa açıklamadaki ya da sayfadaki bir özellik listesi kullanılır.
+3. **Kutu İçeriği** — özelliklerde "Package / Kutu İçeriği / In the box" satırı varsa
+
+Tablolar, görseller, "[NEW]" etiketleri, boş satırlar ve tekrarlar atılır. Bölüm başlıkları her dilde sabittir (çeviriye bırakılmaz). Düzenlenmemiş metin "Sitedeki metin" sekmesinde karşılaştırma için görünür. Kod: `format.js`.
+
 ### Sayfadaki tüm bölümler
 
 Ekranda sayfada bulunan her bölüm listelenir; hangisinin özelliklere ya da açıklamaya yerleştiği işaretlidir. Otomatik yerleşmeyen bir bölüm "Özelliklere ekle" / "Açıklamaya ekle" ile eklenebilir; üç dile çevrilerek eklenir. Menü, footer, çerez uyarısı, benzer ürünler ve yorumlar bu listeye alınmaz.
@@ -51,5 +61,6 @@ Not: İçeriği tamamen JavaScript ile sonradan yüklenen sitelerde ham kaynakta
 - `server.js` — Express sunucu, `POST /api/extract`, `POST /api/translate`
 - `extract.js` — sayfayı indirme, ürün bilgilerini çıkarma, dil kaynaklarını seçme
 - `render.js` — sayfayı tarayıcıda açma, sekmeleri gezme
+- `format.js` — açıklamayı standart düzene sokma
 - `translate.js` — Google / Claude çevirisi
 - `public/` — arayüz

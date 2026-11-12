@@ -297,7 +297,7 @@ $('#addRow').addEventListener('click', () => {
 function syncDescFrom(tab) {
   if (tab === 'preview') descHtml.value = preview.innerHTML;
   if (tab === 'html') preview.innerHTML = descHtml.value;
-  if (tab === 'text') return; // plain text is a separate, independent edit
+  if (tab === 'text' || tab === 'orig') return; // plain text is a separate edit; the original is read-only
   descText.value = htmlToText(descHtml.value);
 }
 
@@ -309,6 +309,8 @@ for (const t of $$('.tab')) {
     preview.hidden = activeTab !== 'preview';
     descHtml.hidden = activeTab !== 'html';
     descText.hidden = activeTab !== 'text';
+    $('#descOrigWrap').hidden = activeTab !== 'orig';
+    if (activeTab === 'orig' && product) $('#descOrig').innerHTML = product.originalDescriptionHtml || '<p class="muted">Yok</p>';
   });
 }
 

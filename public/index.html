@@ -63,12 +63,17 @@
           <button type="button" class="tab active" data-tab="preview">Önizleme</button>
           <button type="button" class="tab" data-tab="html">HTML</button>
           <button type="button" class="tab" data-tab="text">Düz metin</button>
+          <button type="button" class="tab" data-tab="orig">Sitedeki metin</button>
         </div>
         <button type="button" class="copy" data-copy="description">Kopyala</button>
       </div>
       <div id="descPreview" class="preview" contenteditable="true"></div>
       <textarea id="descHtml" rows="12" hidden></textarea>
       <textarea id="descText" rows="12" hidden></textarea>
+      <div id="descOrigWrap" hidden>
+        <p class="muted hint">Siteden alınan düzenlenmemiş metin (sayfanın kendi dilinde). Sadece karşılaştırma için; kopyalama ve dışa aktarma yukarıdaki düzenlenmiş açıklamayı kullanır.</p>
+        <div id="descOrig" class="preview"></div>
+      </div>
     </div>
 
     <div class="block">

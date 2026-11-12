@@ -38,7 +38,17 @@ function toSegments(fields) {
     .each((_, el) => {
       if ($(el).find(BLOCK).length) return; // only innermost blocks
       const text = $(el).text().replace(/\s+/g, ' ').trim();
-      if (text) blocks.push({ el, idx: add(text), hasImg: $(el).find('img').length > 0 });
+      if (!text) return;
+      // "<strong>Topic</strong> – sentence": translate both parts, keep the bold lead
+      const lead = $(el).children('strong, b').first();
+      const leadText = lead.length ? lead.text().replace(/\s+/g, ' ').trim() : '';
+      if (leadText && text.startsWith(leadText) && text.length > leadText.length + 3) {
+        const rest = text.slice(leadText.length);
+        const sep = /^\s*[-–—:]\s*/.exec(rest)?.[0] ?? ' ';
+        blocks.push({ el, lead: add(leadText), sep, idx: add(rest.slice(sep.length)), hasImg: false });
+        return;
+      }
+      blocks.push({ el, idx: add(text), hasImg: $(el).find('img').length > 0 });
     });
   // loose text directly under the root or under wrapper divs
   const loose = [];
@@ -59,6 +69,11 @@ function toSegments(fields) {
       return /^\p{Lu}/u.test(segs[i]) ? t.charAt(0).toLocaleUpperCase(to) + t.slice(1) : t;
     };
     for (const b of blocks) {
+      if (b.lead !== undefined) {
+        const rest = (b.sep + get(b.idx)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        $(b.el).empty().append($('<strong></strong>').text(get(b.lead))).append(rest);
+        continue;
+      }
       const imgs = b.hasImg ? $(b.el).find('img').toArray().map((i) => $.html(i)).join('') : '';
       $(b.el).text(get(b.idx));
       if (imgs) $(b.el).append(imgs);

@@ -1,6 +1,7 @@
 import * as cheerio from 'cheerio';
 import { LANGS, provider, translateFields } from './translate.js';
 import { renderPage } from './render.js';
+import { formatDescription, localizeHeadings } from './format.js';
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
@@ -602,6 +603,11 @@ const sameUrl = (a, b) => a.replace(/[?#].*$/, '').replace(/\/$/, '') === b.repl
 // Each language comes from the best available source: the page itself, the
 // site's own page in that language (hreflang), or machine translation.
 async function addTranslations(p) {
+  // keep the site's text for reference, then rebuild it into the standard layout
+  p.originalDescriptionHtml = p.descriptionHtml;
+  p.descriptionHtml = formatDescription(p);
+  p.descriptionText = htmlToText(p.descriptionHtml);
+
   const translations = {};
   const src = LANGS[p.lang] ? p.lang : '';
   if (src) translations[src] = { ...pickTranslatable(p), source: 'original' };
@@ -612,6 +618,7 @@ async function addTranslations(p) {
     try {
       const { html, finalUrl } = await fetchPage(alt);
       const other = await parseProduct(html, finalUrl);
+      other.descriptionHtml = formatDescription(other);
       if (other.name) translations[lang] = { ...pickTranslatable(other), source: 'site', sourceUrl: finalUrl };
     } catch {
       /* fall through to machine translation */
@@ -627,7 +634,10 @@ async function addTranslations(p) {
     }
   }
 
-  for (const t of Object.values(translations)) t.descriptionText = htmlToText(t.descriptionHtml);
+  for (const [lang, t] of Object.entries(translations)) {
+    t.descriptionHtml = localizeHeadings(t.descriptionHtml, lang);
+    t.descriptionText = htmlToText(t.descriptionHtml);
+  }
   return { ...p, translations, translator: provider };
 }
 
