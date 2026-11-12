@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ürün Aktarıcı</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <h1>Ürün Aktarıcı</h1>
+  <p>Ürün linkini yapıştır; açıklama, stok kodu ve özellikler hazır gelsin.</p>
+</header>
+
+<main>
+  <form id="form" class="search">
+    <input id="url" type="url" placeholder="https://ornek-site.com/urun/..." required autocomplete="off">
+    <button id="go" type="submit">Bilgileri Getir</button>
+  </form>
+  <details class="manual">
+    <summary>Site engelliyor mu? Sayfa kaynağını yapıştır</summary>
+    <p>Tarayıcıda ürün sayfasını aç, <kbd>Ctrl</kbd>+<kbd>U</kbd> ile kaynağı aç, tümünü kopyala ve buraya yapıştır. Link alanı da dolu olmalı.</p>
+    <textarea id="html" rows="5" placeholder="<!doctype html> ..."></textarea>
+  </details>
+
+  <div id="status" class="status" hidden></div>
+
+  <section id="result" hidden>
+    <div class="toolbar">
+      <span id="sources" class="sources"></span>
+      <div class="actions">
+        <button type="button" data-export="json">JSON indir</button>
+        <button type="button" data-export="csv">CSV indir</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <label class="field wide"><span>Ürün adı</span><input data-f="name"></label>
+      <label class="field"><span>Stok kodu</span><input data-f="sku"></label>
+      <label class="field"><span>Barkod</span><input data-f="barcode"></label>
+      <label class="field"><span>Marka</span><input data-f="brand"></label>
+      <label class="field"><span>Fiyat</span><input data-f="price"></label>
+      <label class="field"><span>Para birimi</span><input data-f="currency"></label>
+      <label class="field"><span>Kategori</span><input data-f="category"></label>
+    </div>
+
+    <div class="block">
+      <div class="block-head"><h2>Kısa açıklama</h2><button type="button" class="copy" data-copy="shortDescription">Kopyala</button></div>
+      <textarea data-f="shortDescription" rows="3"></textarea>
+    </div>
+
+    <div class="block">
+      <div class="block-head">
+        <h2>Açıklama</h2>
+        <div class="tabs">
+          <button type="button" class="tab active" data-tab="preview">Önizleme</button>
+          <button type="button" class="tab" data-tab="html">HTML</button>
+          <button type="button" class="tab" data-tab="text">Düz metin</button>
+        </div>
+        <button type="button" class="copy" data-copy="description">Kopyala</button>
+      </div>
+      <div id="descPreview" class="preview" contenteditable="true"></div>
+      <textarea id="descHtml" rows="12" hidden></textarea>
+      <textarea id="descText" rows="12" hidden></textarea>
+    </div>
+
+    <div class="block">
+      <div class="block-head">
+        <h2>Özellik tablosu</h2>
+        <div class="row-actions">
+          <button type="button" id="addRow">+ Satır</button>
+          <button type="button" class="copy" data-copy="specsHtml">HTML tablo kopyala</button>
+          <button type="button" class="copy" data-copy="specsText">Metin kopyala</button>
+        </div>
+      </div>
+      <table class="specs"><thead><tr><th>Özellik</th><th>Değer</th><th></th></tr></thead><tbody id="specRows"></tbody></table>
+      <p id="noSpecs" class="muted" hidden>Bu sayfada özellik tablosu bulunamadı. "+ Satır" ile elle ekleyebilirsin.</p>
+    </div>
+
+    <div class="block">
+      <div class="block-head"><h2>Görseller <span id="imgCount" class="muted"></span></h2><button type="button" class="copy" data-copy="images">Linkleri kopyala</button></div>
+      <div id="images" class="images"></div>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
