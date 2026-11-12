@@ -1,7 +1,7 @@
 import * as cheerio from 'cheerio';
 import { LANGS, provider, translateFields } from './translate.js';
 import { renderPage } from './render.js';
-import { formatDescription, localizeHeadings } from './format.js';
+import { formatDescription, localizeHeadings, shortDescription as makeShortDescription } from './format.js';
 import { probeImages } from './images.js';
 
 const USER_AGENT =
@@ -668,6 +668,7 @@ async function addTranslations(p) {
   p.originalDescriptionHtml = p.descriptionHtml;
   p.descriptionHtml = formatDescription(p);
   p.descriptionText = htmlToText(p.descriptionHtml);
+  p.shortDescription = makeShortDescription(p);
 
   const translations = {};
   const src = LANGS[p.lang] ? p.lang : '';
@@ -680,6 +681,7 @@ async function addTranslations(p) {
       const { html, finalUrl } = await fetchPage(alt);
       const other = await parseProduct(html, finalUrl);
       other.descriptionHtml = formatDescription(other);
+      other.shortDescription = makeShortDescription(other);
       if (other.name) translations[lang] = { ...pickTranslatable(other), source: 'site', sourceUrl: finalUrl };
     } catch {
       /* fall through to machine translation */
@@ -792,10 +794,10 @@ export async function parseProduct(html, url) {
   }
 
   const shortEl = findContainer($, SHORT_DESC_CONTAINER);
-  const shortDescription = first(
-    shortEl && htmlToText($(shortEl).html() || '').slice(0, 600),
-    meta($, 'og:description', 'description', 'twitter:description')
-  );
+  const siteShortDescription = shortEl ? htmlToText($(shortEl).html() || '').slice(0, 600) : '';
+  const metaDescription = meta($, 'og:description', 'description', 'twitter:description');
+  // the final short description is chosen in format.js once the description is known
+  const shortDescription = first(siteShortDescription, metaDescription);
 
   const brand =
     typeof ld?.brand === 'object' ? first(ld.brand?.name) : first(ld?.brand, md.brand, shopify?.vendor, findInSpecs(specs, BRAND_LABELS));
@@ -827,6 +829,8 @@ export async function parseProduct(html, url) {
     availability: clean(offer.availability).replace(/^https?:\/\/schema\.org\//, ''),
     category: first(ld?.category, $('[class*="breadcrumb"] li, [class*="breadcrumb"] a').toArray().map((e) => clean($(e).text())).filter(Boolean).slice(1, -1).join(' > ')),
     shortDescription,
+    siteShortDescription,
+    metaDescription,
     descriptionHtml,
     descriptionText: htmlToText(descriptionHtml),
     specs,

@@ -153,6 +153,72 @@ export function formatDescription({ descriptionHtml, specs = [], sections = [], 
   return out.join('\n');
 }
 
+// ---------- short description ----------
+// One or two plain sentences that say what the product is. Meta descriptions
+// are often spec lists glued together ("Wafer1 x Micro HDMI…"), so every
+// candidate is checked for real sentences before it is used.
+
+const SHORT_MAX = 280;
+
+const sentencesOf = (text) =>
+  (clean(text).match(/[^.!?]+[.!?]+(?=\s|$)|[^.!?]+$/g) || []).map((s) => s.trim()).filter(Boolean);
+
+// prose, not a list: real sentences, mostly words rather than numbers/codes.
+// lenient: the shop's own short-description field may be terse ("18V, 2 akü, çantalı set.")
+function readable(text, lenient = false) {
+  const t = clean(text);
+  if (t.length < 25 || /\.{3}$|…$/.test(t) && !/[.!?]\s/.test(t)) return false;
+  const glued = (t.match(/[a-zçğıöşü)][A-ZÇĞİÖŞÜ0-9(]/g) || []).length; // "Wafer1", "Nano2x", ")2 x"
+  const words = t.split(/\s+/);
+  const codeLike = words.filter((w) => /\d/.test(w) || /^[\/|+×x-]$/.test(w)).length;
+  if (lenient) return glued <= 1 && codeLike / words.length < 0.5;
+  const sentence = sentencesOf(t).some((s) => /[.!?]$/.test(s) && s.split(/\s+/).length >= 5);
+  return sentence && glued <= 1 && codeLike / words.length < 0.35;
+}
+
+// how strongly a sentence is about this product (mentions its code or name)
+function aboutProduct(sentence, keys) {
+  const s = sentence.toLowerCase();
+  return keys.filter((k) => s.includes(k)).length;
+}
+
+function pickSentences(text, keys) {
+  const sents = sentencesOf(text).filter((s) => s.split(/\s+/).length >= (keys.length ? 4 : 1));
+  if (!sents.length) return '';
+  // start at the first sentence that names the product; slogans before it are skipped
+  let start = sents.findIndex((s) => aboutProduct(s, keys) > 0);
+  if (start === -1) start = sents.findIndex((s) => s.length >= 60);
+  if (start === -1) start = 0;
+  let out = sents[start];
+  if (out.length > SHORT_MAX) {
+    // one long sentence: end it at the last comma that fits
+    const cut = out.slice(0, SHORT_MAX).lastIndexOf(',');
+    out = (cut > 80 ? out.slice(0, cut) : out.slice(0, SHORT_MAX).replace(/\s+\S*$/, '')).replace(/[,;:\s]+$/, '') + '.';
+  } else if (sents[start + 1] && (out + ' ' + sents[start + 1]).length <= SHORT_MAX) {
+    out += ' ' + sents[start + 1];
+  }
+  return out;
+}
+
+export function shortDescription({ siteShortDescription: siteShort, metaDescription, descriptionHtml, name = '', sku = '' }) {
+  const keys = [sku, ...name.split(/\s+/).filter((w) => w.length >= 4 && /\d|[A-Z]{2,}/.test(w))]
+    .map((k) => k.toLowerCase())
+    .filter(Boolean);
+  const intro = tokenize(descriptionHtml || '')
+    .filter((t) => t.type === 'para')
+    .map((t) => t.text)
+    .join(' ');
+  if (siteShort && readable(siteShort, true)) return pickSentences(siteShort, []) || clean(siteShort).slice(0, SHORT_MAX);
+  for (const candidate of [metaDescription, intro]) {
+    if (candidate && readable(candidate)) {
+      const picked = pickSentences(candidate, keys);
+      if (picked) return picked;
+    }
+  }
+  // nothing reads like prose: fall back to the site's text, at least tidied up
+  return clean(siteShort || metaDescription || name).replace(/([a-zçğıöşü)])([A-ZÇĞİÖŞÜ0-9(])/g, '$1 $2').slice(0, SHORT_MAX);
+}
+
 // Template headings are set per language instead of being machine-translated
 export function localizeHeadings(html, lang) {
   if (!html.includes('data-k=')) return html;

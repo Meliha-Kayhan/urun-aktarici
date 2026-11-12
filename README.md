@@ -34,6 +34,10 @@ Siteden alınan açıklama birebir kopyalanmaz; her üründe aynı düzene sokul
 
 Tablolar, görseller, "[NEW]" etiketleri, boş satırlar ve tekrarlar atılır. Bölüm başlıkları her dilde sabittir (çeviriye bırakılmaz). Düzenlenmemiş metin "Sitedeki metin" sekmesinde karşılaştırma için görünür. Kod: `format.js`.
 
+### Kısa açıklama
+
+1-2 cümlelik, ürünün ne olduğunu söyleyen bir metin (en fazla ~280 karakter, cümle ortasında kesilmez). Sırayla denenir: sitenin kendi kısa açıklama alanı, meta açıklama, açıklamanın giriş paragrafı. Meta açıklamalar çoğu zaman birbirine yapışmış özellik listesidir ("Wafer1 x Micro HDMI…"); okunabilir cümle içermeyen adaylar atlanır. Uzun metinlerde ürün adını ya da stok kodunu içeren cümleden başlanır, öncesindeki slogan cümleleri alınmaz.
+
 ### Görseller
 
 Görsellerin her zaman en büyük hâli aranır (srcset'teki en büyük boyut, zoom görselleri, Shopify/WooCommerce küçük resim adreslerinin tam boyutlusu). Adaylar indirilip gerçek boyutları ölçülür: 1×1 yer tutucular, ikonlar, 300 px'den küçük küçük resimler ve birebir aynı dosyalar atılır. Adaylar güvenilirlik sırasıyla denenir (mağaza ürün verisi → yapısal veri → ürün galerisi → paylaşım görseli → sayfa içi görseller); üst sıradan en az 2 iyi görsel çıkarsa alttakilere bakılmaz, böylece afişler ve başka renk seçenekleri karışmaz.
