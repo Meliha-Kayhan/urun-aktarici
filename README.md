@@ -34,6 +34,10 @@ Siteden alınan açıklama birebir kopyalanmaz; her üründe aynı düzene sokul
 
 Tablolar, görseller, "[NEW]" etiketleri, boş satırlar ve tekrarlar atılır. Bölüm başlıkları her dilde sabittir (çeviriye bırakılmaz). Düzenlenmemiş metin "Sitedeki metin" sekmesinde karşılaştırma için görünür. Kod: `format.js`.
 
+### Görseller
+
+Bulunan ürün görselleri sunucuda indirilip **800×800 WebP**'ye çevrilir (kalite 85). Ürün kırpılmaz: görsel kareye sığdırılır, boşluklar beyazla doldurulur; şeffaf arka planlar da beyaz olur. Ekrandaki önizlemeler dönüştürülmüş hâlidir. Her görsel tek tek ("WebP indir") ya da hepsi birlikte ZIP olarak indirilebilir (`<stok kodu>_1.webp`, `_2.webp`…). Dönüştürülemeyen görseller ZIP'teki `hatalar.txt` dosyasında listelenir. Kod: `images.js`.
+
 ### Sayfadaki tüm bölümler
 
 Ekranda sayfada bulunan her bölüm listelenir; hangisinin özelliklere ya da açıklamaya yerleştiği işaretlidir. Otomatik yerleşmeyen bir bölüm "Özelliklere ekle" / "Açıklamaya ekle" ile eklenebilir; üç dile çevrilerek eklenir. Menü, footer, çerez uyarısı, benzer ürünler ve yorumlar bu listeye alınmaz.
@@ -58,9 +62,10 @@ Not: İçeriği tamamen JavaScript ile sonradan yüklenen sitelerde ham kaynakta
 
 ## Dosyalar
 
-- `server.js` — Express sunucu, `POST /api/extract`, `POST /api/translate`
+- `server.js` — Express sunucu, `POST /api/extract`, `POST /api/translate`, `GET /api/image`, `POST /api/images.zip`
 - `extract.js` — sayfayı indirme, ürün bilgilerini çıkarma, dil kaynaklarını seçme
 - `render.js` — sayfayı tarayıcıda açma, sekmeleri gezme
 - `format.js` — açıklamayı standart düzene sokma
+- `images.js` — görselleri 800×800 WebP'ye çevirme, ZIP
 - `translate.js` — Google / Claude çevirisi
 - `public/` — arayüz

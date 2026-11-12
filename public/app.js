@@ -94,8 +94,7 @@ function render() {
 
   renderSections();
 
-  const imgs = $('#images');
-  imgs.innerHTML = product.images.map((u) => `<a href="${escapeHtml(u)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(u)}" loading="lazy" alt=""></a>`).join('');
+  renderImages();
   $('#imgCount').textContent = product.images.length ? `(${product.images.length})` : '— bulunamadı';
 
   $('#docs').innerHTML = product.documents
@@ -152,6 +151,59 @@ function loadLang(code) {
     : t.source === 'original' ? 'Sayfanın kendi dili.'
     : 'Makine çevirisi — yayınlamadan önce göz gezdir.';
 }
+
+// ---------- images (800×800 WebP, converted by the server) ----------
+
+const imageBase = () => ($('[data-f="sku"]').value.trim() || product.translations.tr?.name || 'urun').replace(/[^\w\-]+/g, '_').slice(0, 60);
+
+function webpUrl(src, i, download) {
+  const q = new URLSearchParams({ url: src, ref: product.url, name: `${imageBase()}_${i + 1}` });
+  if (download) q.set('download', '1');
+  return `/api/image?${q}`;
+}
+
+function renderImages() {
+  $('#images').innerHTML = product.images
+    .map(
+      (u, i) => `<div class="img-tile">
+        <a class="img" href="${escapeHtml(webpUrl(u, i))}" target="_blank" rel="noreferrer"><img src="${escapeHtml(webpUrl(u, i))}" loading="lazy" alt=""></a>
+        <a class="img-dl" href="${escapeHtml(webpUrl(u, i, true))}">WebP indir</a>
+      </div>`
+    )
+    .join('');
+  // a source that can't be converted shows why instead of a broken image
+  for (const img of $$('#images img')) {
+    img.addEventListener('error', () => {
+      const tile = img.closest('.img-tile');
+      tile.classList.add('failed');
+      img.replaceWith('Dönüştürülemedi');
+      tile.querySelector('.img-dl').remove();
+    });
+  }
+}
+
+$('#imagesZip').addEventListener('click', async () => {
+  if (!product?.images.length) return toast('Görsel yok');
+  const btn = $('#imagesZip');
+  btn.disabled = true;
+  btn.textContent = 'Hazırlanıyor…';
+  try {
+    const res = await fetch('/api/images.zip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ urls: product.images, name: imageBase(), ref: product.url }),
+    });
+    if (!res.ok) throw new Error((await res.json()).error);
+    download(`${imageBase()}_gorseller.zip`, await res.blob(), 'application/zip');
+    const failed = Number(res.headers.get('X-Failed') || 0);
+    toast(failed ? `${res.headers.get('X-Converted')} görsel indirildi, ${failed} tanesi dönüştürülemedi` : 'Görseller indirildi');
+  } catch (err) {
+    setStatus('err', `ZIP hazırlanamadı: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Tümünü indir (ZIP)';
+  }
+});
 
 // ---------- all page sections ----------
 
