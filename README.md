@@ -109,4 +109,5 @@ Not: İçeriği tamamen JavaScript ile sonradan yüklenen sitelerde ham kaynakta
 - `bulk.js` — toplu işlem kuyruğu
 - `postprocess.js` — terim sözlüğü ve sabit metinler
 - `translate.js` — Google / Claude çevirisi
+- `PROJE_RAPORU.md` — projeyi yeni başlayan bir geliştiriciye anlatan rapor
 - `public/` — arayüz (`app.js` ürün ekranı, `views.js` toplu / kaydedilenler / ayarlar)
