@@ -1,5 +1,6 @@
 import * as cheerio from 'cheerio';
 import { LANGS, provider, translateFields } from './translate.js';
+import { renderPage } from './render.js';
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
@@ -403,6 +404,166 @@ async function tryShopify($, url) {
   }
 }
 
+// ---------- whole-page sections ----------
+// Instead of only looking where product content usually lives, every content
+// block on the page is found, labelled by its heading or tab, and classified.
+// Nothing is silently dropped: the UI lists every section so the user can
+// move a misclassified one into specs or the description.
+
+const UNRELATED = /related|recommend|similar|upsell|cross-?sell|recent|also-?(bought|viewed)|benzer|ilgili|onerilen|önerilen|review|yorum|comment|breadcrumb|newsletter|share|social|subscribe|cookie|consent|gdpr|onetrust|kvkk|header|navbar|menu|navigation/i;
+const COOKIE_TEXT = /\b(cookies?|çerez(ler)?)\b/i;
+
+function inUnrelatedArea($, el) {
+  if (inNonProductArea($, el)) return true;
+  return $(el)
+    .parents()
+    .addBack()
+    .toArray()
+    .some((p) => UNRELATED.test(`${p.attribs?.id || ''} ${p.attribs?.class || ''}`) && !$(p).find('h1').length);
+}
+
+// Heading inside the block's own panel wins; otherwise the name of the tab
+// that opens the panel; otherwise the nearest heading above it.
+function blockTitle($, el) {
+  const snap = $(el).closest('[data-ua-tab]');
+  if (snap.length) return snap.attr('data-ua-tab');
+  const h = nearestHeading($, el);
+  for (const p of $(el).parents('[id]').toArray()) {
+    if (h && $(p).find(h.el).length) break;
+    const id = p.attribs.id.replace(/["\\]/g, '');
+    let label = '';
+    try {
+      label = clean($(`a[href="#${id}"], [aria-controls="${id}"], [data-target="#${id}"], [data-bs-target="#${id}"]`).first().text());
+    } catch {
+      /* odd ids */
+    }
+    const by = p.attribs['aria-labelledby'];
+    if (!label && by) label = clean($(`[id="${by.replace(/["\\]/g, '')}"]`).text());
+    if (label && label.length <= 60) return label;
+  }
+  return h?.text || '';
+}
+
+function listRows($, list) {
+  return $(list)
+    .children('li')
+    .toArray()
+    .map((li) => {
+      const kids = $(li).children().toArray();
+      if (kids.length === 2) return { key: clean($(kids[0]).text()).replace(/:$/, ''), value: cellText($, kids[1]) };
+      const m = /^([^:]{1,50}):\s*(.+)$/.exec(clean($(li).text()));
+      return m ? { key: m[1], value: m[2] } : null;
+    })
+    .filter((r) => r && r.key && r.value);
+}
+
+function scanSections($, base) {
+  const blocks = [];
+  const push = (el, kind, rows = []) => {
+    if (!inUnrelatedArea($, el)) blocks.push({ el, kind, rows });
+  };
+
+  $('body table').each((_, t) => {
+    if ($(t).find('table').length) return;
+    const trs = $(t).find('tr').toArray();
+    const rows = [];
+    for (const tr of trs) {
+      const c = $(tr).children('th, td');
+      if (c.length === 2) rows.push({ key: cellText($, c[0]).replace(/:$/, ''), value: cellText($, c[1]) });
+    }
+    const kv = rows.filter((r) => r.key && r.value);
+    if (kv.length >= 2 && kv.length >= trs.length * 0.6) push(t, 'kv', kv);
+    else if (trs.length) push(t, 'table');
+  });
+
+  $('body dl').each((_, dl) => {
+    const rows = $(dl)
+      .children('dt')
+      .toArray()
+      .map((dt) => ({ key: clean($(dt).text()).replace(/:$/, ''), value: clean($(dt).nextUntil('dt', 'dd').text()) }))
+      .filter((r) => r.key && r.value);
+    if (rows.length >= 2) push(dl, 'kv', rows);
+  });
+
+  $('body ul, body ol').each((_, list) => {
+    if ($(list).parents('ul, ol, table, dl').length) return;
+    const lis = $(list).children('li').toArray();
+    if (lis.length < 2) return;
+    // menus and link lists are navigation, not content
+    if (lis.every((li) => $(li).find('a').length && clean($(li).text()) === clean($(li).find('a').text()))) return;
+    const rows = listRows($, list);
+    if (rows.length >= 2 && rows.length >= lis.length * 0.6) push(list, 'kv', rows);
+    else push(list, 'list');
+  });
+
+  // spec grids built from divs: <div><span>Ağırlık</span><span>1,8 kg</span></div> × n
+  $('body div, body section').each((_, el) => {
+    const kids = $(el).children().toArray();
+    if (kids.length < 3) return;
+    const rows = [];
+    for (const k of kids) {
+      const parts = $(k).children().toArray();
+      if (parts.length !== 2 || $(k).find('table, ul, ol, dl, img, p').length) return;
+      const key = clean($(parts[0]).text()).replace(/:$/, '');
+      const value = cellText($, parts[1]);
+      if (!key || !value || key.length > 50 || value.length > 300) return;
+      rows.push({ key, value });
+    }
+    push(el, 'kv', rows);
+  });
+
+  $('body p').each((_, p) => {
+    if (clean($(p).text()).length >= 30 && !$(p).closest('table, li, dl').length) push(p, 'text');
+  });
+  // text written straight into divs without <p>
+  $('body div').each((_, d) => {
+    if ($(d).children('div, p, ul, ol, table, section, article, dl, h1, h2, h3, h4, h5, h6').length) return;
+    if (clean($(d).text()).length >= 80) push(d, 'text');
+  });
+
+  // document order, and drop blocks nested inside another block
+  const order = new Map($('body *').toArray().map((el, i) => [el, i]));
+  const inBlock = new Set(blocks.map((b) => b.el));
+  const top = blocks
+    .filter((b) => !$(b.el).parents().toArray().some((p) => inBlock.has(p)))
+    .sort((a, b) => order.get(a.el) - order.get(b.el));
+
+  const sections = [];
+  for (const b of top) {
+    const title = blockTitle($, b.el);
+    let s = sections[sections.length - 1];
+    // a new section starts at a new heading, or where key/value content meets prose
+    if (!s || s.title !== title || s.kv !== (b.kind === 'kv')) sections.push((s = { title, kv: b.kind === 'kv', rows: [], parts: [] }));
+    s.rows.push(...b.rows);
+    s.parts.push($.html(b.el));
+  }
+
+  const seen = new Set();
+  const out = [];
+  for (const s of sections) {
+    const html = sanitizeHtml(s.parts.join('\n'), base);
+    const text = htmlToText(html);
+    const sig = text.replace(/\s+/g, '').slice(0, 300);
+    if (text.length < 15 || seen.has(sig)) continue;
+    // cookie notices without a recognisable wrapper
+    if (COOKIE_TEXT.test(text.slice(0, 200)) && text.length < 800) continue;
+    seen.add(sig);
+    // specs written as text lines: "Weight: 8.6oz", "Ağırlık: 1,8 kg"
+    if (!s.rows.length) {
+      const lines = text.split('\n');
+      const kv = lines.map((l) => /^([^:]{1,40}):\s*(.{1,300})$/.exec(l)).filter(Boolean);
+      if (kv.length >= 2 && kv.length >= lines.length * 0.6) s.rows = kv.map((m) => ({ key: clean(m[1]), value: clean(m[2]) }));
+    }
+    const rowChars = s.rows.reduce((n, r) => n + r.key.length + r.value.length, 0);
+    const kind = s.rows.length >= 2 && rowChars >= text.replace(/\s+/g, '').length * 0.5 ? 'specs' : text.length >= 60 ? 'text' : 'other';
+    out.push({ id: out.length, title: s.title, kind, rows: kind === 'specs' ? s.rows : [], html, text });
+    if (out.length >= 40) break;
+  }
+  return out;
+}
+
+const rowSig = (r) => `${r.key}=${r.value}`.toLowerCase().replace(/\s+/g, '');
+
 // ---------- languages ----------
 
 function pageLanguage($) {
@@ -472,10 +633,22 @@ async function addTranslations(p) {
 
 // ---------- main ----------
 
-export async function extractProduct(url, pastedHtml) {
-  if (pastedHtml) return addTranslations(await parseProduct(pastedHtml, url));
+// Default: open the page in a real browser and click through its tabs.
+// fast: plain HTTP fetch (quicker, but misses content loaded by JavaScript).
+export async function extractProduct(url, pastedHtml, { fast = false } = {}) {
+  if (pastedHtml) return addTranslations({ ...(await parseProduct(pastedHtml, url)), mode: 'pasted' });
+
+  if (!fast) {
+    try {
+      const { html, finalUrl, tabsOpened } = await renderPage(url);
+      return addTranslations({ ...(await parseProduct(html, finalUrl)), mode: 'browser', tabsOpened });
+    } catch (err) {
+      const { html, finalUrl } = await fetchPage(url);
+      return addTranslations({ ...(await parseProduct(html, finalUrl)), mode: 'fast', browserError: err.message });
+    }
+  }
   const { html, finalUrl } = await fetchPage(url);
-  return addTranslations(await parseProduct(html, finalUrl));
+  return addTranslations({ ...(await parseProduct(html, finalUrl)), mode: 'fast' });
 }
 
 export async function parseProduct(html, url) {
@@ -524,6 +697,29 @@ export async function parseProduct(html, url) {
       .join('\n');
   }
 
+  // whole-page pass: pick up specs and text the targeted rules above missed
+  const sections = scanSections($, url);
+  const hadSpecs = specs.length > 0;
+  const known = new Set(specs.flatMap((g) => g.rows.map(rowSig)));
+  for (const s of sections) {
+    if (s.kind !== 'specs') continue;
+    if (hadSpecs && !SPEC_HEADING.test(s.title)) continue;
+    const fresh = s.rows.filter((r) => !known.has(rowSig(r)));
+    if (fresh.length < 2) continue;
+    fresh.forEach((r) => known.add(rowSig(r)));
+    specs.push({ title: s.title, rows: fresh });
+  }
+  if (clean(htmlToText(descriptionHtml)).length < 40) {
+    const texts = sections.filter((s) => s.kind === 'text' && !SPEC_HEADING.test(s.title)).slice(0, 4);
+    const joined = texts.map((s) => (s.title ? `<h3>${s.title.replace(/</g, '&lt;')}</h3>\n` : '') + s.html).join('\n');
+    if (htmlToText(joined).length > htmlToText(descriptionHtml).length) descriptionHtml = joined;
+  }
+  const descFlat = htmlToText(descriptionHtml).replace(/\s+/g, '');
+  for (const s of sections) {
+    if (s.rows.length && s.rows.filter((r) => known.has(rowSig(r))).length >= s.rows.length * 0.6) s.usedAs = 'specs';
+    else if (s.text.length && descFlat.includes(s.text.replace(/\s+/g, '').slice(0, 120))) s.usedAs = 'description';
+  }
+
   const shortEl = findContainer($, SHORT_DESC_CONTAINER);
   const shortDescription = first(
     shortEl && htmlToText($(shortEl).html() || '').slice(0, 600),
@@ -565,6 +761,7 @@ export async function parseProduct(html, url) {
     specs,
     images: extractImages($, ld, url, shopify),
     documents: extractDocuments($, url),
+    sections,
     lang: pageLanguage($),
     alternates: alternates($, url),
     sources: {

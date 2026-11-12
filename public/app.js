@@ -53,12 +53,13 @@ form.addEventListener('submit', async (e) => {
   const btn = $('#go');
   btn.disabled = true;
   btn.textContent = 'Getiriliyor…';
-  setStatus('load', 'Sayfa okunuyor ve 3 dile çevriliyor… (10-30 sn sürebilir)');
+  const fast = $('#fast').checked;
+  setStatus('load', fast || html ? 'Sayfa okunuyor ve 3 dile çevriliyor… (10-30 sn)' : 'Sayfa tarayıcıda açılıyor, sekmeler geziliyor ve 3 dile çevriliyor… (20-60 sn)');
   try {
     const res = await fetch('/api/extract', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, html: html || undefined }),
+      body: JSON.stringify({ url, html: html || undefined, fast }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Bilinmeyen hata');
@@ -68,6 +69,7 @@ form.addEventListener('submit', async (e) => {
     const missing = [!data.sku && 'stok kodu', !data.descriptionText && 'açıklama', !data.specs.length && 'özellik tablosu'].filter(Boolean);
     const failed = Object.entries(data.translations).filter(([, t]) => t.source === 'error').map(([l]) => LANGS[l]);
     const notes = [];
+    if (data.browserError) notes.push(`Tarayıcı açılamadı (${data.browserError}), hızlı moda geçildi.`);
     if (missing.length) notes.push(`Bulunamayanlar: ${missing.join(', ')}. Elle doldurabilirsin.`);
     if (failed.length) notes.push(`Çevrilemeyen diller: ${failed.join(', ')}.`);
     setStatus(notes.length ? 'err' : 'ok', notes.join(' ') || 'Tüm bilgiler bulundu, 3 dil hazır.');
@@ -87,7 +89,10 @@ function render() {
 
   const s = product.sources;
   const found = [s.jsonLd && 'yapısal veri (JSON-LD)', s.microdata && 'microdata', s.shopify && 'Shopify'].filter(Boolean);
-  $('#sources').textContent = found.length ? `Kaynak: ${found.join(', ')} + sayfa içeriği` : 'Kaynak: sayfa içeriği';
+  const mode = { browser: 'tarayıcıda açıldı', fast: 'hızlı mod', pasted: 'yapıştırılan kaynak' }[product.mode] || '';
+  $('#sources').textContent = (found.length ? `Kaynak: ${found.join(', ')} + sayfa içeriği` : 'Kaynak: sayfa içeriği') + (mode ? ` · ${mode}` : '');
+
+  renderSections();
 
   const imgs = $('#images');
   imgs.innerHTML = product.images.map((u) => `<a href="${escapeHtml(u)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(u)}" loading="lazy" alt=""></a>`).join('');
@@ -146,6 +151,96 @@ function loadLang(code) {
     : t.source === 'site' ? `Metin sitenin bu dildeki sayfasından alındı: <a href="${escapeHtml(t.sourceUrl)}" target="_blank" rel="noreferrer">${escapeHtml(t.sourceUrl)}</a>`
     : t.source === 'original' ? 'Sayfanın kendi dili.'
     : 'Makine çevirisi — yayınlamadan önce göz gezdir.';
+}
+
+// ---------- all page sections ----------
+
+const KIND_LABEL = { specs: 'özellik listesi', text: 'metin', other: 'diğer' };
+const USED_LABEL = { specs: 'özelliklerde', description: 'açıklamada' };
+
+function renderSections() {
+  const list = product.sections || [];
+  $('#secCount').textContent = `(${list.length})`;
+  $('#sections').innerHTML = list
+    .map(
+      (s) => `<li class="sec" data-id="${s.id}">
+        <div class="sec-head">
+          <span class="sec-title${s.title ? '' : ' untitled'}">${escapeHtml(s.title || 'başlıksız')}</span>
+          <span class="badge kind-${s.kind}">${KIND_LABEL[s.kind]}${s.rows.length ? ` · ${s.rows.length} satır` : ''}</span>
+          ${s.usedAs ? `<span class="badge used">${USED_LABEL[s.usedAs]}</span>` : ''}
+          <div class="sec-actions">
+            <button type="button" data-sec="specs" ${s.rows.length ? '' : 'disabled title="Bu bölümde özellik satırı yok"'}>Özelliklere ekle</button>
+            <button type="button" data-sec="desc">Açıklamaya ekle</button>
+            <button type="button" data-sec="toggle">Göster</button>
+          </div>
+        </div>
+        <div class="sec-preview">${escapeHtml(s.text.replace(/\n/g, ' · ').slice(0, 220))}</div>
+        <div class="sec-body" hidden></div>
+      </li>`
+    )
+    .join('');
+}
+
+$('#sections').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-sec]');
+  if (!btn) return;
+  const li = btn.closest('.sec');
+  const s = product.sections[Number(li.dataset.id)];
+  if (btn.dataset.sec === 'toggle') {
+    const body = li.querySelector('.sec-body');
+    if (!body.innerHTML) body.innerHTML = s.html;
+    body.hidden = !body.hidden;
+    btn.textContent = body.hidden ? 'Göster' : 'Gizle';
+    return;
+  }
+  for (const b of li.querySelectorAll('button')) b.disabled = true;
+  try {
+    await addSection(s, btn.dataset.sec === 'specs' ? 'specs' : 'description');
+  } catch (err) {
+    setStatus('err', `Bölüm eklenemedi: ${err.message}`);
+    renderSections();
+  }
+});
+
+// Adds a section to every language: as-is for the page's own language,
+// translated for the others.
+async function addSection(s, target) {
+  saveLang();
+  const part =
+    target === 'specs'
+      ? { specs: [{ title: s.title, rows: s.rows }] }
+      : { descriptionHtml: (s.title ? `<h3>${escapeHtml(s.title)}</h3>\n` : '') + s.html };
+  setStatus('load', `"${s.title || 'başlıksız'}" ekleniyor ve çevriliyor…`);
+
+  // one language at a time: the free translator rate-limits bursts
+  const results = [];
+  for (const code of Object.keys(LANGS)) {
+    if (code === product.lang) {
+      results.push([code, part]);
+      continue;
+    }
+    const res = await fetch('/api/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: part, from: product.lang, to: code }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'çeviri hatası');
+    results.push([code, data]);
+  }
+
+  for (const [code, data] of results) {
+    const t = product.translations[code];
+    if (target === 'specs') t.specs = [...t.specs, ...data.specs];
+    else {
+      t.descriptionHtml = [t.descriptionHtml, data.descriptionHtml].filter(Boolean).join('\n');
+      t.descriptionText = htmlToText(t.descriptionHtml);
+    }
+  }
+  s.usedAs = target;
+  loadLang(lang);
+  renderSections();
+  setStatus('ok', `"${s.title || 'başlıksız'}" ${target === 'specs' ? 'özelliklere' : 'açıklamaya'} eklendi (TR, EN, NL).`);
 }
 
 // reads the current language's (possibly edited) fields back into state

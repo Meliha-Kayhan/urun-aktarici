@@ -6,6 +6,7 @@ Bir ürün linki verildiğinde sayfadan ürün adı, stok kodu, barkod, marka, f
 
 ```
 npm install
+npx playwright install chromium
 npm start
 ```
 
@@ -13,12 +14,19 @@ Ardından http://localhost:4000 adresini aç. Windows'ta `baslat.bat` dosyasına
 
 ## Nasıl çalışır
 
-Uygulama verilen linke tek bir GET isteği atar ve sayfayı okur; hiçbir yere veri göndermez. Bilgiler şu sırayla aranır:
+Uygulama sayfayı varsayılan olarak görünmez bir Chrome'da (Playwright) açar: JavaScript'in yüklenmesini bekler, aşağı kaydırır, sekmelere ve "daha fazla göster" düğmelerine tıklar, akordeonları açar. Sayfadan çıkaran linklere tıklanmaz. Böylece sekmelerde ya da sonradan yüklenen içerik de okunur. "Hızlı mod" seçilirse ya da tarayıcı açılamazsa sayfa doğrudan indirilir (daha hızlı, ama JavaScript ile gelen içerik eksik kalabilir). Hiçbir yere veri gönderilmez.
+
+Bilgiler şu sırayla aranır:
 
 1. Sayfadaki yapısal veri (JSON-LD `Product`, microdata)
 2. Shopify mağazalarında ürünün `.json` karşılığı
 3. Sayfa içeriği: açıklama/özellik kutuları, `table` / `dl` özellik tabloları, "Stok Kodu: …" gibi etiketler
 4. Meta etiketler (`og:title`, `og:description`, `og:image`)
+5. **Tüm sayfa taraması:** sayfadaki her içerik bloğu (tablo, tanım listesi, madde listesi, `div` ızgaraları, "Ad: Değer" satırları, paragraflar) bulunur, başlığına ya da sekme adına göre bölümlere ayrılır ve sınıflandırılır. Yukarıdakilerin kaçırdığı özellik listeleri ve metinler buradan tamamlanır.
+
+### Sayfadaki tüm bölümler
+
+Ekranda sayfada bulunan her bölüm listelenir; hangisinin özelliklere ya da açıklamaya yerleştiği işaretlidir. Otomatik yerleşmeyen bir bölüm "Özelliklere ekle" / "Açıklamaya ekle" ile eklenebilir; üç dile çevrilerek eklenir. Menü, footer, çerez uyarısı, benzer ürünler ve yorumlar bu listeye alınmaz.
 
 ## Üç dil: Türkçe, İngilizce, Hollandaca
 
@@ -40,7 +48,8 @@ Not: İçeriği tamamen JavaScript ile sonradan yüklenen sitelerde ham kaynakta
 
 ## Dosyalar
 
-- `server.js` — Express sunucu, `POST /api/extract`
+- `server.js` — Express sunucu, `POST /api/extract`, `POST /api/translate`
 - `extract.js` — sayfayı indirme, ürün bilgilerini çıkarma, dil kaynaklarını seçme
+- `render.js` — sayfayı tarayıcıda açma, sekmeleri gezme
 - `translate.js` — Google / Claude çevirisi
 - `public/` — arayüz

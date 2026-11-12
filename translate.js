@@ -110,14 +110,30 @@ async function googleTranslate(segs, from, to) {
   return out;
 }
 
+// The keyless endpoint answers 429 when called too often; back off and retry.
 async function googleRequest(text, from, to) {
+  for (const wait of [0, 1500, 4000, 9000]) {
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+    try {
+      return await googleRequestOnce(text, from, to);
+    } catch (err) {
+      if (!err.retryable || wait === 9000) throw err;
+    }
+  }
+}
+
+async function googleRequestOnce(text, from, to) {
   const res = await fetch('https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl=' + (from || 'auto') + '&tl=' + to, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
     body: new URLSearchParams({ q: text }),
     signal: AbortSignal.timeout(20000),
   });
-  if (!res.ok) throw new Error(`Google Çeviri hatası (HTTP ${res.status}). Çok sık istek atıldıysa biraz bekleyin.`);
+  if (!res.ok) {
+    const err = new Error(`Google Çeviri hatası (HTTP ${res.status}). Çok sık istek atıldıysa birkaç dakika bekleyin.`);
+    err.retryable = res.status === 429 || res.status >= 500;
+    throw err;
+  }
   const data = await res.json();
   return data[0].map((p) => p[0]).join('');
 }

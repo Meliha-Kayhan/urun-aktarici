@@ -17,6 +17,7 @@
     <input id="url" type="url" placeholder="https://ornek-site.com/urun/..." required autocomplete="off">
     <button id="go" type="submit">Bilgileri Getir</button>
   </form>
+  <label class="opt"><input type="checkbox" id="fast"> Hızlı mod — sayfayı tarayıcıda açmadan oku (sekmeler ve sonradan yüklenen içerik gelmeyebilir)</label>
   <details class="manual">
     <summary>Site engelliyor mu? Sayfa kaynağını yapıştır</summary>
     <p>Tarayıcıda ürün sayfasını aç, <kbd>Ctrl</kbd>+<kbd>U</kbd> ile kaynağı aç, tümünü kopyala ve buraya yapıştır. Link alanı da dolu olmalı.</p>
@@ -81,6 +82,12 @@
       </div>
       <table class="specs"><thead><tr><th>Özellik</th><th>Değer</th><th></th></tr></thead><tbody id="specRows"></tbody></table>
       <p id="noSpecs" class="muted" hidden>Bu sayfada özellik tablosu bulunamadı. "+ Satır" ile elle ekleyebilirsin.</p>
+    </div>
+
+    <div class="block">
+      <div class="block-head"><h2>Sayfadaki tüm bölümler <span id="secCount" class="muted"></span></h2></div>
+      <p class="muted hint">Sayfada bulunan her içerik burada. Otomatik yerleşmeyen bir bölümü özelliklere ya da açıklamaya ekleyebilirsin; üç dile de çevrilerek eklenir.</p>
+      <ul id="sections" class="sections"></ul>
     </div>
 
     <div class="block">
