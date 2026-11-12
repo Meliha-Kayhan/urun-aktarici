@@ -8,11 +8,20 @@
 </head>
 <body>
 <header class="top">
-  <h1>Ürün Aktarıcı</h1>
-  <p>Ürün linkini yapıştır; açıklama, stok kodu ve özellikler hazır gelsin.</p>
+  <div class="brand">
+    <h1>Ürün Aktarıcı</h1>
+    <p>Ürün linkini yapıştır; açıklama, stok kodu ve özellikler hazır gelsin.</p>
+  </div>
+  <nav class="views" id="nav">
+    <a href="#urun" data-view="product">Ürün</a>
+    <a href="#toplu" data-view="bulk">Toplu</a>
+    <a href="#kayitlar" data-view="library">Kaydedilenler <span id="libCount" class="nav-count"></span></a>
+    <a href="#ayarlar" data-view="settings">Ayarlar</a>
+  </nav>
 </header>
 
 <main>
+<section class="view" id="view-product">
   <form id="form" class="search">
     <input id="url" type="url" placeholder="https://ornek-site.com/urun/..." required autocomplete="off">
     <button id="go" type="submit">Bilgileri Getir</button>
@@ -30,8 +39,17 @@
     <div class="toolbar">
       <span id="sources" class="sources"></span>
       <div class="actions">
-        <button type="button" data-export="json">JSON indir</button>
-        <button type="button" data-export="csv">CSV indir</button>
+        <button type="button" id="save" class="primary-ghost">Kaydet</button>
+        <select id="exportFormat" title="Dışa aktarma biçimi">
+          <option value="woocommerce">WooCommerce CSV</option>
+          <option value="shopify">Shopify CSV</option>
+          <option value="csv">Excel / genel CSV (3 dil)</option>
+          <option value="json">JSON</option>
+        </select>
+        <select id="exportLang" title="Dil (WooCommerce / Shopify tek dil alır)">
+          <option value="tr">TR</option><option value="en">EN</option><option value="nl">NL</option>
+        </select>
+        <button type="button" id="exportBtn">Dışa aktar</button>
       </div>
     </div>
 
@@ -90,6 +108,12 @@
       <p id="noSpecs" class="muted" hidden>Bu sayfada özellik tablosu bulunamadı. "+ Satır" ile elle ekleyebilirsin.</p>
     </div>
 
+    <div class="block" id="variantsBlock" hidden>
+      <div class="block-head"><h2>Varyantlar <span id="varCount" class="muted"></span></h2></div>
+      <p class="muted hint">Renk, beden gibi seçenekler. Stok kodu, fiyat ve barkod düzenlenebilir; dışa aktarmada her varyant ayrı satır olur.</p>
+      <div class="table-scroll"><table class="specs variants"><thead id="varHead"></thead><tbody id="varRows"></tbody></table></div>
+    </div>
+
     <div class="block">
       <div class="block-head"><h2>Sayfadaki tüm bölümler <span id="secCount" class="muted"></span></h2></div>
       <p class="muted hint">Sayfada bulunan her içerik burada. Otomatik yerleşmeyen bir bölümü özelliklere ya da açıklamaya ekleyebilirsin; üç dile de çevrilerek eklenir.</p>
@@ -113,9 +137,71 @@
       <ul id="docs" class="docs"></ul>
     </div>
   </section>
+</section>
+
+<section class="view" id="view-bulk" hidden>
+  <h2 class="view-title">Toplu işlem</h2>
+  <p class="muted">Her satıra bir ürün linki yapıştır. Linkler sırayla işlenir ve her ürün bitince "Kaydedilenler"e eklenir; bu sayfadan ayrılsan da arka planda devam eder.</p>
+  <textarea id="bulkUrls" rows="8" placeholder="https://site.com/urun-1&#10;https://site.com/urun-2"></textarea>
+  <div class="bulk-actions">
+    <label class="opt"><input type="checkbox" id="bulkFast"> Hızlı mod (daha hızlı ve az bellek; sekmelerdeki içerik gelmeyebilir)</label>
+    <div class="row-actions">
+      <button type="button" id="bulkStart" class="primary">Başlat</button>
+      <button type="button" id="bulkStop" hidden>Durdur</button>
+    </div>
+  </div>
+  <div id="bulkSummary" class="status" hidden></div>
+  <ul id="bulkList" class="bulk-list"></ul>
+</section>
+
+<section class="view" id="view-library" hidden>
+  <h2 class="view-title">Kaydedilenler</h2>
+  <div class="lib-tools">
+    <input id="libSearch" type="search" placeholder="Ada, stok koduna ya da siteye göre ara">
+    <div class="row-actions">
+      <select id="libFormat">
+        <option value="woocommerce">WooCommerce CSV</option>
+        <option value="shopify">Shopify CSV</option>
+        <option value="csv">Excel / genel CSV (3 dil)</option>
+        <option value="json">JSON</option>
+      </select>
+      <select id="libLang"><option value="tr">TR</option><option value="en">EN</option><option value="nl">NL</option></select>
+      <button type="button" id="libExport">Seçilenleri dışa aktar</button>
+      <button type="button" id="libDelete" class="danger">Seçilenleri sil</button>
+    </div>
+  </div>
+  <div class="table-scroll">
+    <table class="lib">
+      <thead><tr><th><input type="checkbox" id="libAll" title="Tümünü seç"></th><th></th><th>Ürün</th><th>Stok kodu</th><th>Site</th><th>Kaydedilme</th><th></th></tr></thead>
+      <tbody id="libRows"></tbody>
+    </table>
+  </div>
+  <p id="libEmpty" class="muted" hidden>Henüz kayıtlı ürün yok. Bir ürün çektiğinde otomatik olarak buraya eklenir.</p>
+</section>
+
+<section class="view" id="view-settings" hidden>
+  <h2 class="view-title">Ayarlar</h2>
+  <p class="muted">Bu ayarlar bundan sonra çekilen ürünlere uygulanır.</p>
+
+  <div class="block">
+    <div class="block-head"><h2>Terim sözlüğü</h2><button type="button" id="glossAdd">+ Terim</button></div>
+    <p class="muted hint">Çevirinin yanlış yaptığı ya da sitende farklı kullandığın kelimeleri düzeltir. Örnek: TR · "Gofret" → "Wafer". Büyük/küçük harf fark etmez, sadece tam kelime eşleşir.</p>
+    <table class="specs gloss"><thead><tr><th>Dil</th><th>Aranan</th><th>Yerine</th><th></th></tr></thead><tbody id="glossRows"></tbody></table>
+  </div>
+
+  <div class="block">
+    <div class="block-head"><h2>Sabit metinler</h2></div>
+    <p class="muted hint">Her ürünün açıklamasının sonuna eklenir (garanti, kargo, iade bilgisi vb.). Boş bırakılan dilde bir şey eklenmez.</p>
+    <label class="field"><span>TR</span><textarea id="footer-tr" rows="3"></textarea></label>
+    <label class="field"><span>EN</span><textarea id="footer-en" rows="3"></textarea></label>
+    <label class="field"><span>NL</span><textarea id="footer-nl" rows="3"></textarea></label>
+  </div>
+  <div class="row-actions settings-actions"><button type="button" id="settingsSave" class="primary">Ayarları kaydet</button></div>
+</section>
 </main>
 
 <div id="toast" class="toast" hidden></div>
 <script src="app.js"></script>
+<script src="views.js"></script>
 </body>
 </html>

@@ -3,6 +3,8 @@ import { LANGS, provider, translateFields } from './translate.js';
 import { renderPage } from './render.js';
 import { formatDescription, localizeHeadings, shortDescription as makeShortDescription } from './format.js';
 import { probeImages } from './images.js';
+import { getSettings } from './storage.js';
+import { applyGlossary, appendFooter } from './postprocess.js';
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
@@ -444,6 +446,70 @@ function extractImages($, ld, base, shopify) {
   return out.slice(0, 60);
 }
 
+// ---------- variants (colour, size...) ----------
+// [{ title, sku, barcode, price, available, options: { Renk: 'Siyah', Beden: '42' } }]
+// Only returned when the product really has two or more variants.
+
+function extractVariants($, shopify) {
+  if (shopify?.variants?.length > 1) {
+    const names = asArray(shopify.options).map((o) => clean(o?.name || o));
+    return shopify.variants.map((v) => {
+      const options = {};
+      ['option1', 'option2', 'option3'].forEach((k, i) => {
+        if (v[k] && v[k] !== 'Default Title') options[names[i] || `Seçenek ${i + 1}`] = clean(v[k]);
+      });
+      return { title: clean(v.title), sku: clean(v.sku), barcode: clean(v.barcode), price: clean(v.price), available: v.available !== false, options };
+    });
+  }
+
+  // JSON-LD: a ProductGroup with hasVariant, or one Product listing several offers
+  const nodes = [];
+  $('script[type="application/ld+json"]').each((_, el) => {
+    try {
+      const walk = (n) => {
+        if (!n || typeof n !== 'object') return;
+        if (Array.isArray(n)) return n.forEach(walk);
+        nodes.push(n);
+        if (n['@graph']) walk(n['@graph']);
+      };
+      walk(JSON.parse($(el).contents().text().trim()));
+    } catch {
+      /* broken JSON-LD */
+    }
+  });
+  const OPTION_PROPS = { color: 'Renk', size: 'Beden', material: 'Malzeme', pattern: 'Desen', model: 'Model' };
+  const fromProduct = (v) => {
+    const offer = asArray(v.offers)[0] || {};
+    const options = {};
+    for (const [prop, label] of Object.entries(OPTION_PROPS)) if (typeof v[prop] === 'string' && clean(v[prop])) options[label] = clean(v[prop]);
+    for (const p of asArray(v.additionalProperty)) if (p?.name && p?.value && Object.keys(options).length < 3) options[clean(p.name)] = clean(p.value);
+    return {
+      title: clean(v.name),
+      sku: clean(v.sku || offer.sku),
+      barcode: clean(v.gtin13 || v.gtin || v.gtin12 || v.gtin8 || ''),
+      price: clean(offer.price || offer.lowPrice),
+      available: !/OutOfStock|SoldOut/i.test(offer.availability || ''),
+      options,
+    };
+  };
+  const group = nodes.find((n) => typeIs(n, 'productgroup') && asArray(n.hasVariant).length > 1);
+  if (group) return asArray(group.hasVariant).map(fromProduct);
+
+  const product = nodes.find((n) => typeIs(n, 'product'));
+  const offers = asArray(product?.offers).flatMap((o) => (o?.offers ? asArray(o.offers) : [o]));
+  if (offers.length > 1 && offers.filter((o) => o?.sku).length > 1) {
+    return offers.map((o) => ({
+      title: clean(o.name || o.itemOffered?.name),
+      sku: clean(o.sku),
+      barcode: clean(o.gtin13 || o.gtin || ''),
+      price: clean(o.price || o.lowPrice),
+      available: !/OutOfStock|SoldOut/i.test(o.availability || ''),
+      options: o.name ? { Seçenek: clean(o.name) } : {},
+    }));
+  }
+  return [];
+}
+
 // ---------- Shopify ----------
 
 async function tryShopify($, url) {
@@ -697,8 +763,12 @@ async function addTranslations(p) {
     }
   }
 
+  // user settings: glossary fixes first, then the fixed texts (which stay as written)
+  const settings = await getSettings();
   for (const [lang, t] of Object.entries(translations)) {
     t.descriptionHtml = localizeHeadings(t.descriptionHtml, lang);
+    applyGlossary(t, lang, settings.glossary);
+    t.descriptionHtml = appendFooter(t.descriptionHtml, settings.footers[lang]);
     t.descriptionText = htmlToText(t.descriptionHtml);
   }
   return { ...p, images: await images, translations, translator: provider };
@@ -836,6 +906,7 @@ export async function parseProduct(html, url) {
     specs,
     images: extractImages($, ld, url, shopify),
     documents: extractDocuments($, url),
+    variants: extractVariants($, shopify),
     sections,
     lang: pageLanguage($),
     alternates: alternates($, url),

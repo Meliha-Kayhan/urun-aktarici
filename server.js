@@ -3,6 +3,10 @@ import { fileURLToPath } from 'node:url';
 import { extractProduct } from './extract.js';
 import { LANGS, provider, translateFields } from './translate.js';
 import { toWebp, webpZip } from './images.js';
+import { deleteProduct, getProduct, getSettings, listProducts, saveProduct, saveSettings } from './storage.js';
+import { exportFile } from './export.js';
+import { applyGlossary } from './postprocess.js';
+import { bulkStatus, startBulk, stopBulk } from './bulk.js';
 
 const PORT = process.env.PORT || 4000;
 const app = express();
@@ -31,7 +35,8 @@ app.post('/api/translate', async (req, res) => {
   if (!LANGS[to]) return res.status(400).json({ error: 'Geçersiz hedef dil.' });
   try {
     const empty = { name: '', shortDescription: '', category: '', descriptionHtml: '', specs: [] };
-    res.json(await translateFields({ ...empty, ...fields }, LANGS[from] ? from : '', to));
+    const out = await translateFields({ ...empty, ...fields }, LANGS[from] ? from : '', to);
+    res.json(applyGlossary(out, to, (await getSettings()).glossary));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -65,6 +70,88 @@ app.post('/api/images.zip', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ---------- saved products ----------
+
+const fail = (res, err, status = 500) => res.status(err.code === 'ENOENT' ? 404 : status).json({ error: err.code === 'ENOENT' ? 'Kayıt bulunamadı.' : err.message });
+
+app.get('/api/products', async (req, res) => {
+  try {
+    res.json(await listProducts());
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+app.get('/api/products/:id', async (req, res) => {
+  try {
+    res.json(await getProduct(req.params.id));
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+app.post('/api/products', async (req, res) => {
+  const { id, record, state } = req.body || {};
+  if (!record?.languages) return res.status(400).json({ error: 'Kaydedilecek ürün yok.' });
+  try {
+    res.json(await saveProduct({ id, record, state }));
+  } catch (err) {
+    fail(res, err, 400);
+  }
+});
+
+app.delete('/api/products/:id', async (req, res) => {
+  try {
+    await deleteProduct(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    fail(res, err, 400);
+  }
+});
+
+// ---------- export (WooCommerce / Shopify / general CSV / JSON) ----------
+
+app.post('/api/export', async (req, res) => {
+  const { format = 'csv', lang = 'tr', ids, records } = req.body || {};
+  if (!['csv', 'woocommerce', 'shopify', 'json'].includes(format)) return res.status(400).json({ error: 'Bilinmeyen biçim.' });
+  if (!LANGS[lang]) return res.status(400).json({ error: 'Geçersiz dil.' });
+  try {
+    const list = Array.isArray(records) && records.length ? records : await Promise.all((ids || []).map(async (id) => (await getProduct(id)).record));
+    if (!list.length) return res.status(400).json({ error: 'Dışa aktarılacak ürün yok.' });
+    const file = exportFile(format, list, lang);
+    res.attachment(file.name).type(file.type).send(file.body);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+// ---------- settings (glossary, fixed texts) ----------
+
+app.get('/api/settings', async (req, res) => res.json(await getSettings()));
+
+app.put('/api/settings', async (req, res) => {
+  try {
+    res.json(await saveSettings(req.body));
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+// ---------- bulk ----------
+
+app.post('/api/bulk', (req, res) => {
+  const { urls, fast } = req.body || {};
+  try {
+    res.json(startBulk(Array.isArray(urls) ? urls : String(urls || '').split(/\s+/), { fast: !!fast }));
+  } catch (err) {
+    res.status(409).json({ error: err.message });
+  }
+});
+
+app.get('/api/bulk', (req, res) => res.json(bulkStatus()));
+
+app.post('/api/bulk/stop', (req, res) => res.json(stopBulk()));
 
 app.listen(PORT, () => {
   console.log(`Ürün Aktarıcı çalışıyor: http://localhost:${PORT}`);

@@ -12,6 +12,37 @@ npm start
 
 Ardından http://localhost:4000 adresini aç. Windows'ta `baslat.bat` dosyasına çift tıklamak da yeterli.
 
+## Ekranlar
+
+- **Ürün** — tek link: bilgileri çek, düzenle, kaydet, dışa aktar.
+- **Toplu** — her satıra bir link; sırayla işlenir (aynı anda tek ürün, bellek dostu), her biri bitince otomatik kaydedilir. Sayfadan ayrılınca da arka planda devam eder; "Durdur" mevcut ürün bitince durdurur.
+- **Kaydedilenler** — çekilen tüm ürünler (düzenlemeleriyle birlikte). Ara, aç, sil; seçilenleri tek dosyada dışa aktar.
+- **Ayarlar** — terim sözlüğü ve sabit metinler.
+
+Çekilen her ürün otomatik kaydedilir; ekranda yapılan değişiklikler "Kaydet" ile (ya da dışa aktarırken otomatik) saklanır. Kayıtlar `data/` klasöründe JSON dosyaları olarak durur (git'e girmez).
+
+## Dışa aktarma
+
+| Biçim | İçerik |
+|---|---|
+| **WooCommerce CSV** | WooCommerce › Ürünler › İçe aktar ile yüklenir. Özellik tablosu ürün nitelikleri olur ("Ek bilgiler" sekmesi). Varyantlı ürünler `variable` + `variation` satırları olarak gelir; ana ürünün stok kodu bir varyantınkiyle çakışırsa sonuna `-ANA` eklenir. Ürünler **taslak** olarak gelir. |
+| **Shopify CSV** | Shopify › Products › Import ile yüklenir. Özellik tablosu açıklamanın altına eklenir (Shopify'da nitelik alanı yok). Varyantlar ve görseller ayrı satırlarda. Ürünler **draft** olarak gelir. |
+| **Excel / genel CSV** | Üç dil yan yana, Excel'de Türkçe karakterlerle açılır (`;` ayraçlı). |
+| **JSON** | Tüm veriler. |
+
+WooCommerce ve Shopify dosyaları tek dil içerir (dil seçilir). Görseller dosyada sitedeki orijinal adresleriyle yer alır; platform içe aktarırken kendisi indirir. Fiyatlar platformların beklediği biçime çevrilir ("2.499,90" → 2499.90). Sık kullanılan seçenek adları dile göre yazılır (Size → Beden / Size / Maat).
+
+## Ayarlar
+
+- **Terim sözlüğü:** çevirinin yanlış yaptığı ya da sitende farklı kullandığın kelimeler (ör. TR: "Gofret" → "Wafer"). Tam kelime eşleşir, büyük/küçük harf fark etmez, baş harf büyüklüğü korunur. Ürün adı, kısa açıklama, açıklama, kategori ve özellik tablosuna uygulanır.
+- **Sabit metinler:** her dilde açıklamanın sonuna eklenecek metin (garanti, kargo vb.).
+
+Ayarlar bundan sonra çekilen ürünlere uygulanır.
+
+## Varyantlar
+
+Renk, beden gibi seçenekler Shopify ürün verisinden ya da yapısal veriden (JSON-LD `ProductGroup` / çoklu teklif) okunur. Ekranda her varyantın stok kodu, fiyatı, barkodu ve stok durumu düzenlenebilir.
+
 ## Nasıl çalışır
 
 Uygulama sayfayı varsayılan olarak görünmez bir Chrome'da (Playwright) açar: JavaScript'in yüklenmesini bekler, aşağı kaydırır, sekmelere ve "daha fazla göster" düğmelerine tıklar, akordeonları açar. Sayfadan çıkaran linklere tıklanmaz. Böylece sekmelerde ya da sonradan yüklenen içerik de okunur. "Hızlı mod" seçilirse ya da tarayıcı açılamazsa sayfa doğrudan indirilir (daha hızlı, ama JavaScript ile gelen içerik eksik kalabilir). Hiçbir yere veri gönderilmez.
@@ -73,5 +104,9 @@ Not: İçeriği tamamen JavaScript ile sonradan yüklenen sitelerde ham kaynakta
 - `render.js` — sayfayı tarayıcıda açma, sekmeleri gezme
 - `format.js` — açıklamayı standart düzene sokma
 - `images.js` — görselleri 800×800 WebP'ye çevirme, ZIP
+- `storage.js` — kayıtlar ve ayarlar (`data/`)
+- `export.js` — WooCommerce / Shopify / Excel / JSON dışa aktarma
+- `bulk.js` — toplu işlem kuyruğu
+- `postprocess.js` — terim sözlüğü ve sabit metinler
 - `translate.js` — Google / Claude çevirisi
-- `public/` — arayüz
+- `public/` — arayüz (`app.js` ürün ekranı, `views.js` toplu / kaydedilenler / ayarlar)

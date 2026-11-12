@@ -19,6 +19,7 @@ const descText = $('#descText');
 const specRows = $('#specRows');
 
 let product = null;
+let currentId = null; // id of the saved copy of the product on screen
 let lang = 'tr';
 let activeTab = 'preview';
 
@@ -64,8 +65,10 @@ form.addEventListener('submit', async (e) => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Bilinmeyen hata');
     product = data;
+    currentId = null;
     lang = data.translations[data.lang] ? data.lang : 'tr';
     render();
+    await saveCurrent(true);
     const missing = [!data.sku && 'stok kodu', !data.descriptionText && 'açıklama', !data.specs.length && 'özellik tablosu'].filter(Boolean);
     const failed = Object.entries(data.translations).filter(([, t]) => t.source === 'error').map(([l]) => LANGS[l]);
     const notes = [];
@@ -93,7 +96,7 @@ function render() {
   $('#sources').textContent = (found.length ? `Kaynak: ${found.join(', ')} + sayfa içeriği` : 'Kaynak: sayfa içeriği') + (mode ? ` · ${mode}` : '');
 
   renderSections();
-
+  renderVariants();
   renderImages();
 
   $('#docs').innerHTML = product.documents
@@ -389,6 +392,7 @@ function collect() {
   for (const input of $$('[data-f]')) data[input.dataset.f] = input.value.trim();
   data.images = activeImages().map((im) => im.url);
   data.documents = product.documents;
+  data.variants = readVariants();
   data.languages = {};
   for (const code of Object.keys(LANGS)) {
     const { name, category, shortDescription, descriptionHtml, descriptionText, specs } = product.translations[code];
@@ -430,7 +434,7 @@ document.addEventListener('click', async (e) => {
 
 function download(name, content, type) {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([content], { type }));
+  a.href = URL.createObjectURL(content instanceof Blob ? content : new Blob([content], { type }));
   a.download = name;
   a.click();
   URL.revokeObjectURL(a.href);
@@ -449,39 +453,101 @@ $('#specsDownload').addEventListener('click', () => {
   toast(`İndirildi (${LANGS[lang]})`);
 });
 
-function csvCell(v) {
-  const s = String(v ?? '');
-  return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+// ---------- save ----------
+
+async function saveCurrent(silent = false) {
+  if (!product) return;
+  const record = collect();
+  product.variants = record.variants;
+  try {
+    const res = await fetch('/api/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: currentId, record, state: product }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    currentId = data.id;
+    $('#save').textContent = 'Kaydedildi ✓';
+    clearTimeout(saveCurrent.timer);
+    saveCurrent.timer = setTimeout(() => ($('#save').textContent = 'Kaydet'), 2500);
+    if (!silent) toast('Kaydedildi');
+    window.refreshLibraryCount?.();
+    return record;
+  } catch (err) {
+    setStatus('err', `Kaydedilemedi: ${err.message}`);
+  }
 }
 
-for (const btn of $$('[data-export]')) {
-  btn.addEventListener('click', () => {
-    if (!product) return;
-    const d = collect();
-    if (btn.dataset.export === 'json') {
-      download(`${fileBase(d)}.json`, JSON.stringify(d, null, 2), 'application/json');
-      return;
-    }
-    const cols = {
-      'Stok Kodu': d.sku,
-      Barkod: d.barcode,
-      Marka: d.brand,
-      Fiyat: d.price,
-      'Para Birimi': d.currency,
-    };
-    for (const [code, label] of Object.entries(LANGS)) {
-      const t = d.languages[code];
-      cols[`Ürün Adı (${label})`] = t.name;
-      cols[`Kategori (${label})`] = t.category;
-      cols[`Kısa Açıklama (${label})`] = t.shortDescription;
-      cols[`Açıklama HTML (${label})`] = t.descriptionHtml;
-      cols[`Özellikler HTML (${label})`] = t.specs.length ? specsHtml(t.specs) : '';
-    }
-    cols['Görseller'] = d.images.join(',');
-    cols['Belgeler'] = d.documents.map((x) => x.url).join(',');
-    cols['Kaynak'] = d.url;
-    const csv = [Object.keys(cols), Object.values(cols)].map((row) => row.map(csvCell).join(';')).join('\r\n');
-    // BOM so Excel opens Turkish characters correctly
-    download(`${fileBase(d)}.csv`, '﻿' + csv, 'text/csv;charset=utf-8');
+$('#save').addEventListener('click', () => saveCurrent());
+
+// ---------- export (WooCommerce / Shopify / Excel / JSON, built by the server) ----------
+
+async function downloadExport(body) {
+  const res = await fetch('/api/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
+  if (!res.ok) throw new Error((await res.json()).error || 'Dışa aktarılamadı');
+  const name = /filename="?([^";]+)"?/.exec(res.headers.get('Content-Disposition') || '')?.[1] || 'urunler.csv';
+  download(decodeURIComponent(name), await res.blob(), res.headers.get('Content-Type'));
+}
+
+$('#exportBtn').addEventListener('click', async () => {
+  if (!product) return;
+  const record = (await saveCurrent(true)) || collect();
+  try {
+    await downloadExport({ format: $('#exportFormat').value, lang: $('#exportLang').value, records: [record] });
+  } catch (err) {
+    setStatus('err', err.message);
+  }
+});
+
+// ---------- variants ----------
+
+function renderVariants() {
+  const vs = product.variants || [];
+  $('#variantsBlock').hidden = !vs.length;
+  if (!vs.length) return;
+  const opts = [...new Set(vs.flatMap((v) => Object.keys(v.options || {})))];
+  $('#varCount').textContent = `(${vs.length})`;
+  $('#varHead').innerHTML = `<tr>${opts.map((o) => `<th>${escapeHtml(o)}</th>`).join('')}<th>Stok kodu</th><th>Fiyat</th><th>Barkod</th><th>Stokta</th></tr>`;
+  $('#varRows').innerHTML = vs
+    .map(
+      (v, i) => `<tr data-i="${i}">${opts.map((o) => `<td class="opt-cell">${escapeHtml(v.options?.[o] || '')}</td>`).join('')}
+        <td><input class="v-sku" value="${escapeHtml(v.sku || '')}"></td>
+        <td><input class="v-price" value="${escapeHtml(v.price || '')}"></td>
+        <td><input class="v-barcode" value="${escapeHtml(v.barcode || '')}"></td>
+        <td class="center"><input type="checkbox" class="v-avail" ${v.available === false ? '' : 'checked'}></td></tr>`
+    )
+    .join('');
+}
+
+function readVariants() {
+  return (product.variants || []).map((v, i) => {
+    const tr = $(`#varRows tr[data-i="${i}"]`);
+    if (!tr) return v;
+    return {
+      ...v,
+      sku: tr.querySelector('.v-sku').value.trim(),
+      price: tr.querySelector('.v-price').value.trim(),
+      barcode: tr.querySelector('.v-barcode').value.trim(),
+      available: tr.querySelector('.v-avail').checked,
+    };
+  });
+}
+
+// ---------- open a saved product ----------
+
+async function openSaved(id) {
+  const res = await fetch(`/api/products/${encodeURIComponent(id)}`);
+  const saved = await res.json();
+  if (!res.ok) throw new Error(saved.error);
+  product = saved.state;
+  currentId = saved.id;
+  lang = product.translations[product.lang] ? product.lang : 'tr';
+  $('#url').value = product.url || '';
+  render();
+  setStatus('ok', `Kayıtlı ürün açıldı (${new Date(saved.savedAt).toLocaleString('tr-TR')}). Değişiklikleri "Kaydet" ile saklayabilirsin.`);
 }
