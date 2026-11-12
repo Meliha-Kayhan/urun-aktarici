@@ -1,4 +1,5 @@
 import * as cheerio from 'cheerio';
+import { LANGS, provider, translateFields } from './translate.js';
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
@@ -310,11 +311,79 @@ async function tryShopify($, url) {
   }
 }
 
+// ---------- languages ----------
+
+function pageLanguage($) {
+  const raw = $('html').attr('lang') || meta($, 'og:locale', 'language', 'content-language') || '';
+  return raw.slice(0, 2).toLowerCase();
+}
+
+// prefer "nl" / "nl-NL" over regional variants like "nl-BE"
+function alternates($, base) {
+  const out = {};
+  const rank = {};
+  $('link[rel="alternate"][hreflang]').each((_, el) => {
+    const tag = ($(el).attr('hreflang') || '').toLowerCase();
+    const [code, region] = tag.split('-');
+    const href = absUrl($(el).attr('href'), base);
+    if (!code || code.length !== 2 || !href) return;
+    const r = !region ? 0 : region === code ? 1 : 2;
+    if (rank[code] === undefined || r < rank[code]) {
+      out[code] = href;
+      rank[code] = r;
+    }
+  });
+  return out;
+}
+
+const pickTranslatable = (p) => ({
+  name: p.name,
+  shortDescription: p.shortDescription,
+  category: p.category,
+  descriptionHtml: p.descriptionHtml,
+  specs: p.specs,
+});
+
+const sameUrl = (a, b) => a.replace(/[?#].*$/, '').replace(/\/$/, '') === b.replace(/[?#].*$/, '').replace(/\/$/, '');
+
+// Each language comes from the best available source: the page itself, the
+// site's own page in that language (hreflang), or machine translation.
+async function addTranslations(p) {
+  const translations = {};
+  const src = LANGS[p.lang] ? p.lang : '';
+  if (src) translations[src] = { ...pickTranslatable(p), source: 'original' };
+
+  for (const lang of Object.keys(LANGS)) {
+    const alt = p.alternates[lang];
+    if (translations[lang] || !alt || sameUrl(alt, p.url)) continue;
+    try {
+      const { html, finalUrl } = await fetchPage(alt);
+      const other = await parseProduct(html, finalUrl);
+      if (other.name) translations[lang] = { ...pickTranslatable(other), source: 'site', sourceUrl: finalUrl };
+    } catch {
+      /* fall through to machine translation */
+    }
+  }
+
+  for (const lang of Object.keys(LANGS)) {
+    if (translations[lang]) continue;
+    try {
+      translations[lang] = { ...(await translateFields(pickTranslatable(p), src, lang)), source: provider };
+    } catch (err) {
+      translations[lang] = { ...pickTranslatable(p), source: 'error', error: err.message };
+    }
+  }
+
+  for (const t of Object.values(translations)) t.descriptionText = htmlToText(t.descriptionHtml);
+  return { ...p, translations, translator: provider };
+}
+
 // ---------- main ----------
 
-export async function extractProduct(url) {
+export async function extractProduct(url, pastedHtml) {
+  if (pastedHtml) return addTranslations(await parseProduct(pastedHtml, url));
   const { html, finalUrl } = await fetchPage(url);
-  return parseProduct(html, finalUrl);
+  return addTranslations(await parseProduct(html, finalUrl));
 }
 
 export async function parseProduct(html, url) {
@@ -398,6 +467,8 @@ export async function parseProduct(html, url) {
     descriptionText: htmlToText(descriptionHtml),
     specs,
     images: extractImages($, ld, url, shopify),
+    lang: pageLanguage($),
+    alternates: alternates($, url),
     sources: {
       jsonLd: !!ld,
       microdata: !!md.name,

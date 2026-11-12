@@ -1,6 +1,7 @@
 import express from 'express';
 import { fileURLToPath } from 'node:url';
-import { extractProduct, parseProduct } from './extract.js';
+import { extractProduct } from './extract.js';
+import { provider } from './translate.js';
 
 const PORT = process.env.PORT || 4000;
 const app = express();
@@ -15,7 +16,7 @@ app.post('/api/extract', async (req, res) => {
       return res.status(400).json({ error: 'Geçerli bir ürün linki girin (http:// veya https:// ile başlamalı).' });
     }
     // html is sent when the user pastes the page source manually (sites that block bots)
-    const product = html ? await parseProduct(html, url) : await extractProduct(url);
+    const product = await extractProduct(url, html);
     res.json(product);
   } catch (err) {
     const msg = err.name === 'TimeoutError' ? 'Site 20 saniyede yanıt vermedi.' : err.message;
@@ -25,4 +26,5 @@ app.post('/api/extract', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Ürün Aktarıcı çalışıyor: http://localhost:${PORT}`);
+  console.log(`Çeviri: ${provider === 'claude' ? 'Claude (ANTHROPIC_API_KEY)' : 'Google Çeviri (anahtarsız)'}`);
 });

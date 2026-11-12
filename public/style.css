@@ -82,6 +82,16 @@ button:disabled { opacity: .6; cursor: wait; }
 .sources { color: var(--muted); font-size: 13px; }
 .actions { display: flex; gap: 8px; }
 
+.langs { display: flex; gap: 6px; margin: 22px 0 6px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.lang { border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0; background: transparent; padding: 8px 14px; margin-bottom: -1px; display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.lang.active { background: var(--card); border-color: var(--border); }
+.badge { font-size: 11px; font-weight: 500; padding: 1px 7px; border-radius: 99px; background: var(--bg); color: var(--muted); }
+.badge.original, .badge.site { background: var(--ok-bg); color: var(--ok-text); }
+.badge.error { background: var(--err-bg); color: var(--err-text); }
+.lang-note { margin: 0 0 12px; font-size: 13px; color: var(--muted); min-height: 1em; }
+.lang-note.error { color: var(--err-text); }
+
+.grid + .grid { margin-top: 0; }
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 4px; }
 .field span, .block h2 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }

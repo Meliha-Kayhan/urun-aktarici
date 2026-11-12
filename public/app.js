@@ -1,6 +1,15 @@
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
+const LANGS = { tr: 'TR', en: 'EN', nl: 'NL' };
+const SOURCE_LABEL = {
+  original: 'orijinal',
+  site: 'sitenin kendi sayfası',
+  google: 'Google çeviri',
+  claude: 'Claude çeviri',
+  error: 'çevrilemedi',
+};
+
 const form = $('#form');
 const statusEl = $('#status');
 const result = $('#result');
@@ -10,6 +19,7 @@ const descText = $('#descText');
 const specRows = $('#specRows');
 
 let product = null;
+let lang = 'tr';
 let activeTab = 'preview';
 
 function setStatus(type, msg) {
@@ -43,7 +53,7 @@ form.addEventListener('submit', async (e) => {
   const btn = $('#go');
   btn.disabled = true;
   btn.textContent = 'Getiriliyor…';
-  setStatus('load', 'Sayfa okunuyor…');
+  setStatus('load', 'Sayfa okunuyor ve 3 dile çevriliyor… (10-30 sn sürebilir)');
   try {
     const res = await fetch('/api/extract', {
       method: 'POST',
@@ -53,9 +63,14 @@ form.addEventListener('submit', async (e) => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Bilinmeyen hata');
     product = data;
+    lang = data.translations[data.lang] ? data.lang : 'tr';
     render();
     const missing = [!data.sku && 'stok kodu', !data.descriptionText && 'açıklama', !data.specs.length && 'özellik tablosu'].filter(Boolean);
-    setStatus(missing.length ? 'err' : 'ok', missing.length ? `Bulunamayanlar: ${missing.join(', ')}. Elle doldurabilirsin.` : 'Tüm bilgiler bulundu.');
+    const failed = Object.entries(data.translations).filter(([, t]) => t.source === 'error').map(([l]) => LANGS[l]);
+    const notes = [];
+    if (missing.length) notes.push(`Bulunamayanlar: ${missing.join(', ')}. Elle doldurabilirsin.`);
+    if (failed.length) notes.push(`Çevrilemeyen diller: ${failed.join(', ')}.`);
+    setStatus(notes.length ? 'err' : 'ok', notes.join(' ') || 'Tüm bilgiler bulundu, 3 dil hazır.');
   } catch (err) {
     setStatus('err', err.message);
   } finally {
@@ -74,20 +89,63 @@ function render() {
   const found = [s.jsonLd && 'yapısal veri (JSON-LD)', s.microdata && 'microdata', s.shopify && 'Shopify'].filter(Boolean);
   $('#sources').textContent = found.length ? `Kaynak: ${found.join(', ')} + sayfa içeriği` : 'Kaynak: sayfa içeriği';
 
-  preview.innerHTML = product.descriptionHtml;
-  descHtml.value = product.descriptionHtml;
-  descText.value = product.descriptionText;
-
-  specRows.innerHTML = '';
-  for (const g of product.specs) {
-    if (product.specs.length > 1 && g.title) addGroupRow(g.title);
-    for (const r of g.rows) addSpecRow(r.key, r.value);
-  }
-  $('#noSpecs').hidden = product.specs.length > 0;
-
   const imgs = $('#images');
   imgs.innerHTML = product.images.map((u) => `<a href="${escapeHtml(u)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(u)}" loading="lazy" alt=""></a>`).join('');
   $('#imgCount').textContent = product.images.length ? `(${product.images.length})` : '— bulunamadı';
+
+  renderLangTabs();
+  loadLang(lang);
+}
+
+function renderLangTabs() {
+  $('#langs').innerHTML = Object.entries(LANGS)
+    .map(([code, label]) => {
+      const src = product.translations[code]?.source;
+      return `<button type="button" class="lang${code === lang ? ' active' : ''}" data-lang="${code}">${label}<span class="badge ${src}">${SOURCE_LABEL[src] || ''}</span></button>`;
+    })
+    .join('');
+}
+
+$('#langs').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-lang]');
+  if (!btn || btn.dataset.lang === lang) return;
+  saveLang();
+  lang = btn.dataset.lang;
+  renderLangTabs();
+  loadLang(lang);
+});
+
+function loadLang(code) {
+  const t = product.translations[code];
+  for (const input of $$('[data-t]')) input.value = t[input.dataset.t] || '';
+  preview.innerHTML = t.descriptionHtml;
+  descHtml.value = t.descriptionHtml;
+  descText.value = t.descriptionText;
+
+  specRows.innerHTML = '';
+  for (const g of t.specs) {
+    if (t.specs.length > 1 && g.title) addGroupRow(g.title);
+    for (const r of g.rows) addSpecRow(r.key, r.value);
+  }
+  $('#noSpecs').hidden = t.specs.length > 0;
+
+  const note = $('#langNote');
+  note.className = 'lang-note' + (t.source === 'error' ? ' error' : '');
+  note.innerHTML =
+    t.source === 'error' ? `Çeviri yapılamadı: ${escapeHtml(t.error)}. Aşağıda orijinal metin var.`
+    : t.source === 'site' ? `Metin sitenin bu dildeki sayfasından alındı: <a href="${escapeHtml(t.sourceUrl)}" target="_blank" rel="noreferrer">${escapeHtml(t.sourceUrl)}</a>`
+    : t.source === 'original' ? 'Sayfanın kendi dili.'
+    : 'Makine çevirisi — yayınlamadan önce göz gezdir.';
+}
+
+// reads the current language's (possibly edited) fields back into state
+function saveLang() {
+  syncDescFrom(activeTab);
+  const t = product.translations[lang];
+  for (const input of $$('[data-t]')) t[input.dataset.t] = input.value.trim();
+  t.descriptionHtml = descHtml.value.trim();
+  t.descriptionText = descText.value.trim();
+  t.specs = readSpecs();
 }
 
 function addGroupRow(title) {
@@ -102,6 +160,23 @@ function addSpecRow(key = '', value = '') {
   tr.innerHTML = `<td><input class="k" value="${escapeHtml(key)}"></td><td><input class="v" value="${escapeHtml(value)}"></td><td><button type="button" class="del" title="Sil">×</button></td>`;
   specRows.append(tr);
   return tr;
+}
+
+function readSpecs() {
+  const specs = [];
+  let group = { title: '', rows: [] };
+  for (const tr of specRows.children) {
+    if (tr.classList.contains('group')) {
+      if (group.rows.length) specs.push(group);
+      group = { title: tr.querySelector('input').value.trim(), rows: [] };
+    } else {
+      const key = tr.querySelector('.k').value.trim();
+      const value = tr.querySelector('.v').value.trim();
+      if (key || value) group.rows.push({ key, value });
+    }
+  }
+  if (group.rows.length) specs.push(group);
+  return specs;
 }
 
 specRows.addEventListener('click', (e) => {
@@ -135,27 +210,15 @@ for (const t of $$('.tab')) {
 // ---------- collect current (edited) values ----------
 
 function collect() {
-  syncDescFrom(activeTab);
+  saveLang();
   const data = { url: product.url };
   for (const input of $$('[data-f]')) data[input.dataset.f] = input.value.trim();
-  data.descriptionHtml = descHtml.value.trim();
-  data.descriptionText = descText.value.trim();
-
-  const specs = [];
-  let group = { title: '', rows: [] };
-  for (const tr of specRows.children) {
-    if (tr.classList.contains('group')) {
-      if (group.rows.length) specs.push(group);
-      group = { title: tr.querySelector('input').value.trim(), rows: [] };
-    } else {
-      const key = tr.querySelector('.k').value.trim();
-      const value = tr.querySelector('.v').value.trim();
-      if (key || value) group.rows.push({ key, value });
-    }
-  }
-  if (group.rows.length) specs.push(group);
-  data.specs = specs;
   data.images = product.images;
+  data.languages = {};
+  for (const code of Object.keys(LANGS)) {
+    const { name, category, shortDescription, descriptionHtml, descriptionText, specs } = product.translations[code];
+    data.languages[code] = { name, category, shortDescription, descriptionHtml, descriptionText, specs };
+  }
   return data;
 }
 
@@ -169,24 +232,25 @@ function specsHtml(specs) {
 
 const specsText = (specs) => specs.flatMap((g) => g.rows.map((r) => `${r.key}: ${r.value}`)).join('\n');
 
-// ---------- copy ----------
+// ---------- copy (current language) ----------
 
 document.addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-copy]');
   if (!btn || !product) return;
   const d = collect();
+  const t = d.languages[lang];
   const text = {
-    shortDescription: d.shortDescription,
-    description: activeTab === 'text' ? d.descriptionText : d.descriptionHtml,
-    specsHtml: specsHtml(d.specs),
-    specsText: specsText(d.specs),
+    shortDescription: t.shortDescription,
+    description: activeTab === 'text' ? t.descriptionText : t.descriptionHtml,
+    specsHtml: specsHtml(t.specs),
+    specsText: specsText(t.specs),
     images: d.images.join('\n'),
   }[btn.dataset.copy];
   await navigator.clipboard.writeText(text || '');
-  toast('Kopyalandı');
+  toast(`Kopyalandı (${LANGS[lang]})`);
 });
 
-// ---------- export ----------
+// ---------- export (all languages) ----------
 
 function download(name, content, type) {
   const a = document.createElement('a');
@@ -196,7 +260,7 @@ function download(name, content, type) {
   URL.revokeObjectURL(a.href);
 }
 
-const fileBase = (d) => (d.sku || d.name || 'urun').replace(/[^\w\-]+/g, '_').slice(0, 60);
+const fileBase = (d) => (d.sku || d.languages.tr.name || 'urun').replace(/[^\w\-]+/g, '_').slice(0, 60);
 
 function csvCell(v) {
   const s = String(v ?? '');
@@ -212,20 +276,22 @@ for (const btn of $$('[data-export]')) {
       return;
     }
     const cols = {
-      'Ürün Adı': d.name,
       'Stok Kodu': d.sku,
       Barkod: d.barcode,
       Marka: d.brand,
       Fiyat: d.price,
       'Para Birimi': d.currency,
-      Kategori: d.category,
-      'Kısa Açıklama': d.shortDescription,
-      'Açıklama (HTML)': d.descriptionHtml,
-      'Özellikler (HTML)': d.specs.length ? specsHtml(d.specs) : '',
-      Görseller: d.images.join(','),
-      Kaynak: d.url,
     };
-    for (const g of d.specs) for (const r of g.rows) cols[r.key] ??= r.value;
+    for (const [code, label] of Object.entries(LANGS)) {
+      const t = d.languages[code];
+      cols[`Ürün Adı (${label})`] = t.name;
+      cols[`Kategori (${label})`] = t.category;
+      cols[`Kısa Açıklama (${label})`] = t.shortDescription;
+      cols[`Açıklama HTML (${label})`] = t.descriptionHtml;
+      cols[`Özellikler HTML (${label})`] = t.specs.length ? specsHtml(t.specs) : '';
+    }
+    cols['Görseller'] = d.images.join(',');
+    cols['Kaynak'] = d.url;
     const csv = [Object.keys(cols), Object.values(cols)].map((row) => row.map(csvCell).join(';')).join('\r\n');
     // BOM so Excel opens Turkish characters correctly
     download(`${fileBase(d)}.csv`, '﻿' + csv, 'text/csv;charset=utf-8');
