@@ -14,7 +14,7 @@ Ardından http://localhost:4000 adresini aç. Windows'ta `baslat.bat` dosyasına
 
 ## Ekranlar
 
-- **Ürün** — tek link: bilgileri çek, düzenle, kaydet, dışa aktar.
+- **Ürün** — tek link: bilgileri çek, düzenle, kaydet, dışa aktar. "Orijinal sayfa" bölümünden ürün sayfası yeni sekmede açılabilir ya da sayfanın tam görüntüsü uygulamanın içinde gösterilebilir (karşılaştırma için; görüntü sadece istenince alınır).
 - **Toplu** — her satıra bir link; sırayla işlenir (aynı anda tek ürün, bellek dostu), her biri bitince otomatik kaydedilir. Sayfadan ayrılınca da arka planda devam eder; "Durdur" mevcut ürün bitince durdurur.
 - **Kaydedilenler** — çekilen tüm ürünler (düzenlemeleriyle birlikte). Ara, aç, sil; seçilenleri tek dosyada dışa aktar.
 - **Ayarlar** — terim sözlüğü ve sabit metinler.

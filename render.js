@@ -71,6 +71,36 @@ async function safeClick(page, locator) {
   return ok;
 }
 
+// ---------- screenshot of the original page ----------
+// Taken only when asked for: unlike renderPage, images are loaded so the page
+// looks like it does for a visitor.
+
+const SHOT_WIDTH = 1280;
+const SHOT_MAX_HEIGHT = 12000; // very long pages are cut here to keep memory in check
+const shots = new Map(); // url -> jpeg, the last few only
+
+export async function screenshotPage(url) {
+  if (shots.has(url)) return shots.get(url);
+  const browser = await getBrowser();
+  const context = await browser.newContext({ userAgent: USER_AGENT, locale: 'tr-TR', viewport: { width: SHOT_WIDTH, height: 900 } });
+  const page = await context.newPage();
+  try {
+    const res = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    if (res && res.status() >= 400) throw new Error(`Sayfa açılamadı (HTTP ${res.status()}).`);
+    await settle(page);
+    await clickByText(page, COOKIE_BUTTON, 1);
+    await autoScroll(page); // lazy-loaded images appear only after scrolling past them
+    await page.waitForTimeout(800);
+    const height = Math.min(await page.evaluate(() => document.documentElement.scrollHeight), SHOT_MAX_HEIGHT);
+    const jpeg = await page.screenshot({ type: 'jpeg', quality: 70, fullPage: true, clip: { x: 0, y: 0, width: SHOT_WIDTH, height } });
+    shots.set(url, jpeg);
+    if (shots.size > 5) shots.delete(shots.keys().next().value);
+    return jpeg;
+  } finally {
+    await context.close();
+  }
+}
+
 async function clickByText(page, re, limit) {
   let clicked = 0;
   for (const role of ['button', 'link']) {

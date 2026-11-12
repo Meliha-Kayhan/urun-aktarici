@@ -7,6 +7,7 @@ import { deleteProduct, getProduct, getSettings, listProducts, saveProduct, save
 import { exportFile } from './export.js';
 import { applyGlossary } from './postprocess.js';
 import { bulkStatus, startBulk, stopBulk } from './bulk.js';
+import { screenshotPage } from './render.js';
 
 const PORT = process.env.PORT || 4000;
 const app = express();
@@ -55,6 +56,17 @@ app.get('/api/image', async (req, res) => {
     res.send(webp);
   } catch (err) {
     res.status(502).send(err.message);
+  }
+});
+
+// screenshot of the original product page, for comparing with what was extracted
+app.get('/api/snapshot', async (req, res) => {
+  const { url } = req.query;
+  if (!/^https?:\/\//i.test(url || '')) return res.status(400).send('Geçersiz adres');
+  try {
+    res.type('image/jpeg').set('Cache-Control', 'private, max-age=600').send(await screenshotPage(url));
+  } catch (err) {
+    res.status(502).type('text/plain').send(err.message);
   }
 });
 

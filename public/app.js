@@ -95,6 +95,7 @@ function render() {
   const mode = { browser: 'tarayıcıda açıldı', fast: 'hızlı mod', pasted: 'yapıştırılan kaynak' }[product.mode] || '';
   $('#sources').textContent = (found.length ? `Kaynak: ${found.join(', ')} + sayfa içeriği` : 'Kaynak: sayfa içeriği') + (mode ? ` · ${mode}` : '');
 
+  renderOriginal();
   renderSections();
   renderVariants();
   renderImages();
@@ -501,6 +502,52 @@ $('#exportBtn').addEventListener('click', async () => {
     await downloadExport({ format: $('#exportFormat').value, lang: $('#exportLang').value, records: [record] });
   } catch (err) {
     setStatus('err', err.message);
+  }
+});
+
+// ---------- original page (new tab, or a screenshot inside the app) ----------
+
+let shotUrl = null; // object URL of the screenshot on display
+
+function renderOriginal() {
+  $('#origOpen').href = product.url;
+  try {
+    $('#origHost').textContent = new URL(product.url).hostname.replace(/^www\./, '');
+  } catch {
+    $('#origHost').textContent = '';
+  }
+  // a different product: forget the previous screenshot
+  if (shotUrl) URL.revokeObjectURL(shotUrl);
+  shotUrl = null;
+  $('#origView').hidden = true;
+  $('#origView').innerHTML = '';
+  $('#origShot').textContent = 'Görüntüsünü göster';
+  $('#origShot').disabled = false;
+}
+
+$('#origShot').addEventListener('click', async () => {
+  const view = $('#origView');
+  const btn = $('#origShot');
+  if (shotUrl) {
+    view.hidden = !view.hidden;
+    btn.textContent = view.hidden ? 'Görüntüsünü göster' : 'Görüntüyü gizle';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Görüntü alınıyor… (10-30 sn)';
+  try {
+    const res = await fetch(`/api/snapshot?${new URLSearchParams({ url: product.url })}`);
+    if (!res.ok) throw new Error(await res.text());
+    shotUrl = URL.createObjectURL(await res.blob());
+    view.innerHTML = `<img src="${shotUrl}" alt="Orijinal sayfanın görüntüsü">`;
+    view.hidden = false;
+    btn.textContent = 'Görüntüyü gizle';
+  } catch (err) {
+    view.innerHTML = `<p class="orig-err">Görüntü alınamadı: ${escapeHtml(err.message)}. "Yeni sekmede aç" ile sayfaya bakabilirsin.</p>`;
+    view.hidden = false;
+    btn.textContent = 'Tekrar dene';
+  } finally {
+    btn.disabled = false;
   }
 });
 
