@@ -124,6 +124,8 @@ export async function listProducts() {
 const DEFAULT_SETTINGS = {
   // [{ lang: 'tr' | 'en' | 'nl' | '*', find: 'Gofret', replace: 'Wafer' }]
   glossary: [],
+  // terms machine translation must leave as written, e.g. ['Bluetooth', 'Smart TV']
+  keepTerms: [],
   // text appended to every description, per language
   footers: { tr: '', en: '', nl: '' },
 };
@@ -147,7 +149,8 @@ export async function saveSettings(input) {
     .filter((g) => g.find);
   const footers = {};
   for (const l of ['tr', 'en', 'nl']) footers[l] = String(input?.footers?.[l] || '').trim();
-  settingsCache = { glossary, footers };
+  const keepTerms = [...new Set((Array.isArray(input?.keepTerms) ? input.keepTerms : []).map((t) => String(t || '').trim()).filter(Boolean))];
+  settingsCache = { glossary, keepTerms, footers };
   await writeJson(SETTINGS, settingsCache);
   return settingsCache;
 }

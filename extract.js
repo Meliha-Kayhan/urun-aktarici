@@ -16,6 +16,8 @@ const BRAND_LABELS = /^(marka|brand|üretici)$/i;
 
 const SPEC_CONTAINER = /spec|ozellik|özellik|feature|attribute|teknik|technical|properties|detay/i;
 const SPEC_HEADING = /specification|spec sheet|tech(nical)?\s*spec|spesifikasyon|özellik|ozellik|teknik|technical data|specificaties|kenmerken|technische|spezifikation|caractéristiques|properties/i;
+// driver/firmware download lists ("Version | OS | Description") are not product specs
+const NOT_SPEC_HEADING = /download|driver|firmware|release notes|changelog|indir|sürücü|surucu/i;
 // strong names are tried before weak ones, so "#overview" beats a generic "productDetail" wrapper
 const DESC_CONTAINER_STRONG = /(^|[-_ ])(description|desc|aciklama|açıklama|overview|genel[-_]?bakis)([-_ ]|$)|tab-description|product-description/i;
 const DESC_CONTAINER_WEAK = /(^|[-_ ])(product[-_]?detail|detay)([-_ ]|$)/i;
@@ -219,6 +221,7 @@ function extractSpecs($) {
   const anyHinted = scored.some((s) => s.hinted);
   for (const { t, hinted } of scored) {
     if (anyHinted && !hinted) continue;
+    if (!hinted && NOT_SPEC_HEADING.test(nearestHeading($, t)?.text || '')) continue;
     const trs = $(t).find('tr').toArray();
     const rows = [];
     for (const tr of trs) {
@@ -754,17 +757,17 @@ async function addTranslations(p) {
     }
   }
 
+  const settings = await getSettings();
   for (const lang of Object.keys(LANGS)) {
     if (translations[lang]) continue;
     try {
-      translations[lang] = { ...(await translateFields(pickTranslatable(p), src, lang)), source: provider };
+      translations[lang] = { ...(await translateFields(pickTranslatable(p), src, lang, { keep: settings.keepTerms })), source: provider };
     } catch (err) {
       translations[lang] = { ...pickTranslatable(p), source: 'error', error: err.message };
     }
   }
 
   // user settings: glossary fixes first, then the fixed texts (which stay as written)
-  const settings = await getSettings();
   for (const [lang, t] of Object.entries(translations)) {
     t.descriptionHtml = localizeHeadings(t.descriptionHtml, lang);
     applyGlossary(t, lang, settings.glossary);
@@ -796,6 +799,9 @@ export async function extractProduct(url, pastedHtml, { fast = false } = {}) {
 
 export async function parseProduct(html, url) {
   const $ = cheerio.load(html);
+  // hidden leftovers of the site's rich-text editor (CKEditor paste buffer); one
+  // nested inside a spec table made the whole table look like a layout table
+  $('#cke_pastebin, .cke_pastebin, [data-cke-temp]').remove();
   const ld = findJsonLdProduct($);
   const md = microdata($);
   const shopify = await tryShopify($, url);
@@ -847,6 +853,7 @@ export async function parseProduct(html, url) {
   for (const s of sections) {
     if (s.kind !== 'specs') continue;
     if (hadSpecs && !SPEC_HEADING.test(s.title)) continue;
+    if (NOT_SPEC_HEADING.test(s.title)) continue;
     const fresh = s.rows.filter((r) => !known.has(rowSig(r)));
     if (fresh.length < 2) continue;
     fresh.forEach((r) => known.add(rowSig(r)));

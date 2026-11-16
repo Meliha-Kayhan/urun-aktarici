@@ -36,8 +36,9 @@ app.post('/api/translate', async (req, res) => {
   if (!LANGS[to]) return res.status(400).json({ error: 'Geçersiz hedef dil.' });
   try {
     const empty = { name: '', shortDescription: '', category: '', descriptionHtml: '', specs: [] };
-    const out = await translateFields({ ...empty, ...fields }, LANGS[from] ? from : '', to);
-    res.json(applyGlossary(out, to, (await getSettings()).glossary));
+    const settings = await getSettings();
+    const out = await translateFields({ ...empty, ...fields }, LANGS[from] ? from : '', to, { keep: settings.keepTerms });
+    res.json(applyGlossary(out, to, settings.glossary));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

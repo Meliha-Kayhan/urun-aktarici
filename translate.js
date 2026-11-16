@@ -154,7 +154,7 @@ async function googleRequestOnce(text, from, to) {
 }
 
 let claudeClient;
-async function claudeTranslate(segs, from, to) {
+async function claudeTranslate(segs, from, to, keep = []) {
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
   const { betaZodOutputFormat } = await import('@anthropic-ai/sdk/helpers/beta/zod');
   const { z } = await import('zod');
@@ -172,7 +172,8 @@ async function claudeTranslate(segs, from, to) {
     system:
       'You translate e-commerce product content for an online store. Translate each string in the input array ' +
       'and return the translations in the same order, one output string per input string. Keep product codes, ' +
-      'model numbers, brand names, units and numbers unchanged. Use natural, retail-style wording for the target market.',
+      'model numbers, brand names, units and numbers unchanged. Use natural, retail-style wording for the target market.' +
+      (keep.length ? ' Never translate these terms; keep them exactly as written (only add target-language suffixes if grammar needs them): ' + JSON.stringify(keep) : ''),
     messages: [
       {
         role: 'user',
@@ -187,11 +188,42 @@ async function claudeTranslate(segs, from, to) {
   return out;
 }
 
+// ---------- protected terms ----------
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Google can't be told "don't translate X", so each protected term is swapped
+// for an opaque token (ZQX0, ZQX1...) that it passes through untouched - Turkish
+// suffixes even attach to it ("ZQX0'yi") - and swapped back afterwards with the
+// exact spelling found in the source text.
+function protect(segs, keep) {
+  const terms = [...new Set(keep.map((k) => String(k).trim()).filter(Boolean))].sort((a, b) => b.length - a.length);
+  if (!terms.length) return { segs, restore: (out) => out };
+  const re = new RegExp(`(?<![\\p{L}\\p{N}])(?:${terms.map(escapeRe).join('|')})(?![\\p{L}\\p{N}])`, 'giu');
+  const found = [];
+  const masked = segs.map((s) =>
+    s.replace(re, (m) => {
+      let i = found.indexOf(m);
+      if (i < 0) i = found.push(m) - 1;
+      return `ZQX${i}`;
+    })
+  );
+  const restore = (out) => out.map((t) => t && t.replace(/ZQX(\d+)/gi, (m, i) => found[+i] ?? m));
+  return { segs: masked, restore };
+}
+
 // ---------- public ----------
 
-export async function translateFields(fields, from, to) {
+// keep: terms that must stay as written in every translation (e.g. "Bluetooth")
+export async function translateFields(fields, from, to, { keep = [] } = {}) {
   const { segs, rebuild } = toSegments(fields);
   if (!segs.length) return rebuild([], to);
-  const out = provider === 'claude' ? await claudeTranslate(segs, from, to) : await googleTranslate(segs, from, to);
+  let out;
+  if (provider === 'claude') {
+    out = await claudeTranslate(segs, from, to, keep);
+  } else {
+    const p = protect(segs, keep);
+    out = p.restore(await googleTranslate(p.segs, from, to));
+  }
   return rebuild(out, to);
 }

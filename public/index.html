@@ -128,7 +128,7 @@
 
     <div class="block">
       <div class="block-head"><h2>Sayfadaki tüm bölümler <span id="secCount" class="muted"></span></h2></div>
-      <p class="muted hint">Sayfada bulunan her içerik burada. Otomatik yerleşmeyen bir bölümü özelliklere ya da açıklamaya ekleyebilirsin; üç dile de çevrilerek eklenir.</p>
+      <p class="muted hint">Sayfada bulunan her içerik burada. Otomatik yerleşmeyen bir bölümü özelliklere, açıklamaya ya da kısa açıklamaya ekleyebilirsin; üç dile de çevrilerek eklenir.</p>
       <ul id="sections" class="sections"></ul>
     </div>
 
@@ -199,6 +199,12 @@
     <div class="block-head"><h2>Terim sözlüğü</h2><button type="button" id="glossAdd">+ Terim</button></div>
     <p class="muted hint">Çevirinin yanlış yaptığı ya da sitende farklı kullandığın kelimeleri düzeltir. Örnek: TR · "Gofret" → "Wafer". Büyük/küçük harf fark etmez, sadece tam kelime eşleşir.</p>
     <table class="specs gloss"><thead><tr><th>Dil</th><th>Aranan</th><th>Yerine</th><th></th></tr></thead><tbody id="glossRows"></tbody></table>
+  </div>
+
+  <div class="block">
+    <div class="block-head"><h2>Çevrilmeyecek terimler</h2></div>
+    <p class="muted hint">Buraya yazdığın kelimeler çeviride olduğu gibi kalır (ör. Bluetooth, Smart TV, Wireless). Her satıra bir terim yaz. Büyük/küçük harf fark etmez, sadece tam kelime eşleşir.</p>
+    <label class="field"><textarea id="keepTerms" rows="4" placeholder="Bluetooth&#10;Smart TV&#10;Wireless"></textarea></label>
   </div>
 
   <div class="block">

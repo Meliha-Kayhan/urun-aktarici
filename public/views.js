@@ -225,6 +225,7 @@ async function loadSettings() {
   const s = await (await fetch('/api/settings')).json();
   $('#glossRows').innerHTML = '';
   (s.glossary.length ? s.glossary : [undefined]).forEach((g) => glossRow(g));
+  $('#keepTerms').value = (s.keepTerms || []).join('\n');
   for (const l of ['tr', 'en', 'nl']) $(`#footer-${l}`).value = s.footers?.[l] || '';
 }
 
@@ -237,8 +238,9 @@ $('#settingsSave').addEventListener('click', async () => {
   const glossary = [...$$('#glossRows tr')]
     .map((tr) => ({ lang: tr.querySelector('.g-lang').value, find: tr.querySelector('.g-find').value.trim(), replace: tr.querySelector('.g-replace').value.trim() }))
     .filter((g) => g.find);
+  const keepTerms = $('#keepTerms').value.split(/\r?\n/).map((t) => t.trim()).filter(Boolean);
   const footers = Object.fromEntries(['tr', 'en', 'nl'].map((l) => [l, $(`#footer-${l}`).value]));
-  const res = await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ glossary, footers }) });
+  const res = await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ glossary, keepTerms, footers }) });
   toast(res.ok ? 'Ayarlar kaydedildi' : 'Kaydedilemedi');
 });
 

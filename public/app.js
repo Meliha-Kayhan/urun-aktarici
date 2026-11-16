@@ -227,7 +227,8 @@ $('#imagesZip').addEventListener('click', async () => {
 // ---------- all page sections ----------
 
 const KIND_LABEL = { specs: 'özellik listesi', text: 'metin', other: 'diğer' };
-const USED_LABEL = { specs: 'özelliklerde', description: 'açıklamada' };
+const USED_LABEL = { specs: 'özelliklerde', description: 'açıklamada', short: 'kısa açıklamada' };
+const TARGET_LABEL = { specs: 'özelliklere', description: 'açıklamaya', short: 'kısa açıklamaya' };
 
 function renderSections() {
   const list = product.sections || [];
@@ -242,6 +243,7 @@ function renderSections() {
           <div class="sec-actions">
             <button type="button" data-sec="specs" ${s.rows.length ? '' : 'disabled title="Bu bölümde özellik satırı yok"'}>Özelliklere ekle</button>
             <button type="button" data-sec="desc">Açıklamaya ekle</button>
+            <button type="button" data-sec="short">Kısa açıklamaya ekle</button>
             <button type="button" data-sec="toggle">Göster</button>
           </div>
         </div>
@@ -266,7 +268,7 @@ $('#sections').addEventListener('click', async (e) => {
   }
   for (const b of li.querySelectorAll('button')) b.disabled = true;
   try {
-    await addSection(s, btn.dataset.sec === 'specs' ? 'specs' : 'description');
+    await addSection(s, { specs: 'specs', desc: 'description', short: 'short' }[btn.dataset.sec]);
   } catch (err) {
     setStatus('err', `Bölüm eklenemedi: ${err.message}`);
     renderSections();
@@ -277,10 +279,13 @@ $('#sections').addEventListener('click', async (e) => {
 // translated for the others.
 async function addSection(s, target) {
   saveLang();
+  // the short description is plain text, so the section goes in as one flat line
   const part =
     target === 'specs'
       ? { specs: [{ title: s.title, rows: s.rows }] }
-      : { descriptionHtml: (s.title ? `<h3>${escapeHtml(s.title)}</h3>\n` : '') + s.html };
+      : target === 'short'
+        ? { shortDescription: s.text.replace(/\s*\n+\s*/g, ' ').trim() }
+        : { descriptionHtml: (s.title ? `<h3>${escapeHtml(s.title)}</h3>\n` : '') + s.html };
   setStatus('load', `"${s.title || 'başlıksız'}" ekleniyor ve çevriliyor…`);
 
   // one language at a time: the free translator rate-limits bursts
@@ -303,6 +308,7 @@ async function addSection(s, target) {
   for (const [code, data] of results) {
     const t = product.translations[code];
     if (target === 'specs') t.specs = [...t.specs, ...data.specs];
+    else if (target === 'short') t.shortDescription = [t.shortDescription, data.shortDescription].filter(Boolean).join(' ');
     else {
       t.descriptionHtml = [t.descriptionHtml, data.descriptionHtml].filter(Boolean).join('\n');
       t.descriptionText = htmlToText(t.descriptionHtml);
@@ -311,7 +317,7 @@ async function addSection(s, target) {
   s.usedAs = target;
   loadLang(lang);
   renderSections();
-  setStatus('ok', `"${s.title || 'başlıksız'}" ${target === 'specs' ? 'özelliklere' : 'açıklamaya'} eklendi (TR, EN, NL).`);
+  setStatus('ok', `"${s.title || 'başlıksız'}" ${TARGET_LABEL[target]} eklendi (TR, EN, NL).`);
 }
 
 // reads the current language's (possibly edited) fields back into state
